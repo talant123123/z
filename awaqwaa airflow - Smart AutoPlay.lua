@@ -29846,22 +29846,24 @@ function Simulator.pool(xpb, ypb)
     }, {
     }
     local Cpb = Simulator.grownKinds() >= Simulator.GROWN_MIN
+    local fusionParents = {}
     for Dpb, Epb in pairs(zpb.profile_data.collection.owned_units) do
         local Fpb = zpb.collection:get_unit_by_uuid(Epb.uuid) or Epb
         local Gpb, Hpb = pcall(Core.USC.calculate_level, Fpb.unit_id, tonumber(Fpb.xp) or 0)
         local Ipb = Units.isFarm(Fpb.unit_id) or not Cpb or (Gpb and (tonumber(Hpb) or 0) >= Simulator.GROWN_LEVEL)
-        if Core.Units [Fpb.unit_id] and Units.rows(Fpb.unit_id) and not Units.hidden(Fpb.unit_id) and Ipb then
+        local fusionParent = Units.FUSION.attacks[Fpb.unit_id]
+        if Core.Units [Fpb.unit_id] and Units.rows(Fpb.unit_id) and not Units.hidden(Fpb.unit_id) and (Ipb or fusionParent) then
             local Jpb = Units.isFarm(Fpb.unit_id)
             local Kpb, Lpb = pcall(Jpb and function()
                 return Units.farm(Fpb, Units.rows(Fpb.unit_id).max)
             end or Units.score, Fpb, xpb)
             Lpb = (Kpb and Lpb or 0) * (Jpb and 1 or Units.skinMul(Fpb, ypb and ypb.skinSet))
             local Mpb = Jpb and Bpb or Apb
-            if not Mpb [Fpb.unit_id] or Lpb > Mpb [Fpb.unit_id].sc then
-                Mpb [Fpb.unit_id] = {
-                    u = Fpb,
-                    sc = Lpb
-                }
+            if fusionParent and (not fusionParents[Fpb.unit_id] or Lpb > fusionParents[Fpb.unit_id].sc) then
+                fusionParents[Fpb.unit_id] = { u = Fpb, sc = Lpb }
+            end
+            if Ipb and (not Mpb [Fpb.unit_id] or Lpb > Mpb [Fpb.unit_id].sc) then
+                Mpb [Fpb.unit_id] = { u = Fpb, sc = Lpb }
             end
         end
     end
@@ -29966,6 +29968,7 @@ function Simulator.pool(xpb, ypb)
     end
     Aqb.rest = {
     }
+    Aqb.fusionParents = fusionParents
     for Dqb, Eqb in ipairs(Npb) do
         if not zqb [Eqb.u] then
             table.insert(Aqb.rest, Eqb.u)
@@ -30112,6 +30115,47 @@ function Simulator.strength(prb, qrb)
     return srb, trb, urb, vrb
 end
 
+function Simulator.fusionLineup(level, team, pool)
+    if not Config.actives then return nil, "Auto Abilities is off." end
+    local fusion = Units.FUSION
+    if not Units.rows(fusion.hero) then return nil, "Fused Hero stats are unavailable." end
+    local lineup, used = {}, {}
+    for _, id in ipairs(fusion.parents) do
+        local candidate = pool.fusionParents and pool.fusionParents[id]
+        local unit = candidate and candidate.u
+        if not unit then
+            for _, equipped in ipairs(team) do
+                if equipped.unit_id == id then unit = equipped break end
+            end
+        end
+        local rows = unit and Units.rows(id)
+        if not rows or rows.max < fusion.upgrade then
+            return nil, "Missing usable " .. Units.name(id) .. " with upgrade 7 data."
+        end
+        table.insert(lineup, unit)
+        used[id] = true
+    end
+    local entries = Simulator.teamFrom(lineup, level.map)
+    if #entries < 2 or not entries[1].placeable or not entries[2].placeable then
+        return nil, "The map cannot place both Fusion units."
+    end
+
+    local others = table.clone(team)
+    table.sort(others, function(a, b)
+        local farmA, farmB = Units.isFarm(a.unit_id), Units.isFarm(b.unit_id)
+        if farmA ~= farmB then return farmA end
+        return Units.score(a, level.mod) > Units.score(b, level.mod)
+    end)
+    for _, unit in ipairs(others) do
+        if #lineup >= 6 then break end
+        if not used[unit.unit_id] then
+            table.insert(lineup, unit)
+            used[unit.unit_id] = true
+        end
+    end
+    return lineup
+end
+
 function Simulator.bestTeam(Drb, Erb, Frb, Grb)
     local Hrb = Utils.now()
     Grb = Grb or 25
@@ -30162,36 +30206,19 @@ function Simulator.bestTeam(Drb, Erb, Frb, Grb)
         }))) / 3
     end
     local tsb, usb = Wrb or Krb, psb(Irb, Wrb or Krb)
-    if Config.actives ~= false then
-        local fusion = Units.FUSION
-        local parents = {}
-        for _, pool in ipairs({Irb, Frb, Frb.rest or {}}) do
-            for _, candidate in ipairs(pool) do
-                if fusion.attacks[candidate.unit_id] and not parents[candidate.unit_id] then
-                    parents[candidate.unit_id] = candidate
-                end
+    local fusionTeam = Simulator.fusionLineup(Drb, Irb, Frb)
+    if fusionTeam then
+        local tested = Simulator.teamFrom(fusionTeam, Drb.map)
+        local normal = Simulator.run(Drb, tested, { hpMul = 1 })
+        if normal.fusionWave then
+            local result = Jrb == 1 and normal or Simulator.run(Drb, tested, { hpMul = Jrb })
+            local score = psb(fusionTeam, result)
+            if score > usb then
+                Irb, tsb, usb = fusionTeam, result, score
             end
-        end
-        local first, second = parents[fusion.parents[1]], parents[fusion.parents[2]]
-        if first and second and Utils.now() - Hrb < Grb then
-            local tested = {first, second}
-            local rest = {}
-            for _, member in ipairs(Irb) do
-                if not fusion.attacks[member.unit_id] then table.insert(rest, member) end
-            end
-            table.sort(rest, function(a, b)
-                local function priority(member)
-                    if Units.isFarm(member.unit_id) then return math.huge end
-                    return Units.score(member, Drb.mod)
-                end
-                return priority(a) > priority(b)
-            end)
-            for index = 1, math.min(4, #rest) do table.insert(tested, rest[index]) end
-            local result = Simulator.run(Drb, Simulator.teamFrom(tested, Drb.map), { hpMul = Jrb })
-            if result.fusionWave then
-                local score = psb(tested, result)
-                if score > usb then Irb, tsb, usb = tested, result, score end
-            end
+            App.log(1, "SIM", string.format("Fusion comparison: Fused Hero at wave %d on normal enemy HP", normal.fusionWave))
+        else
+            App.log(1, "SIM", string.format("Fusion comparison: the pair did not fuse by wave %d", normal.wave or 0))
         end
     end
     if type(Frb.rest) == "table" and # Frb.rest > 0 then
@@ -30380,6 +30407,29 @@ function Simulator.levelFor(rtb)
         vtb._gamemode = vtb._OVERRIDE_GAMEMODE or ((rtb.kind == "raid" or rtb.kind == "artifact") and "raid") or (vtb.infinite and "infinite") or "story"
         return vtb, nil
     end
+end
+
+function Simulator.testNamekFusion()
+    if App.where ~= "lobby" then return "Run the Fusion forecast in the lobby." end
+    local session = Core.session()
+    if not (session and session.profile_data and session.collection) then
+        return "Game profile is still loading."
+    end
+    local mode = { key = "inf:namek_infinite", kind = "infinite", level = "namek_infinite", diff = "Hard" }
+    local ld, challenge = Simulator.levelFor(mode)
+    if not ld then return "Namek Infinite data is unavailable." end
+    local mod = Modes.levelMod(mode.level)
+    local level = Simulator.info(ld, mode.key, challenge, mod)
+    local equipped = {}
+    for _, unit in ipairs(Units.equipped()) do table.insert(equipped, unit.u) end
+    local lineup, reason = Simulator.fusionLineup(level, equipped, Simulator.pool(mod, level))
+    if not lineup then return reason end
+
+    local result = Simulator.run(level, Simulator.teamFrom(lineup, level.map), { hpMul = 1 })
+    local baseline = Simulator.run(level, Simulator.teamFrom(equipped, level.map), { hpMul = 1 })
+    return string.format("Namek Infinite · current team reaches wave %d · Fusion team reaches wave %d · %s",
+        baseline.wave or 0, result.wave or 0,
+        result.fusionWave and ("Fused Hero at wave " .. tostring(result.fusionWave)) or "no fusion before the run ended")
 end
 
 function Simulator.plan(wtb, xtb, ytb, ztb)
@@ -42530,6 +42580,18 @@ function GUI.build()
     bsc = urc:Tab("🧪", "TESTING")
     bsc:Section("One Namek Infinite run")
     GUI.namekReport = bsc:Paragraph(GUI.namekTestText())
+    local fusionReport = bsc:Paragraph("Run a separate Namek forecast for Fused Hero.")
+    local fusionRunning = false
+    bsc:Button("🧪", "Compare Fused Hero on Namek", "Simulate your current team and a team with both Fusion units.", function()
+        if fusionRunning then return end
+        fusionRunning = true
+        fusionReport:Set("Simulating Namek Infinite…")
+        local ok, result = pcall(Simulator.testNamekFusion)
+        fusionRunning = false
+        local message = ok and result or ("Fusion forecast failed: " .. tostring(result))
+        fusionReport:Set(message)
+        App.log(1, "TEST", message)
+    end)
     bsc:Button("🧪", "Arm Namek Infinite test", "Arm one test, then enter Namek Infinite with Auto Farm and battle automation enabled.", function()
         if Match.namekTest and not Match.namekTest.finished then
             return Trc("TESTING", "The current test is running.", "warning")
