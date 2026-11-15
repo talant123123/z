@@ -26915,6 +26915,7 @@ function FarmHub.recalculatePlan(notify)
         return report("Team planning is already running.", "warning")
     end
     FarmHub.manualPlanning = true
+    FarmHub.manualPlan = nil
     local ok, message, tone = pcall(function()
         local session = Core.session()
         if not (session and session.profile_data and session.collection) then
@@ -26931,7 +26932,7 @@ function FarmHub.recalculatePlan(notify)
             return "Equip at least one unit and recalculate.", "warning"
         end
         report("Planning team for " .. mode.label .. "…", "default")
-        local result, searchError = Simulator.plan(mode, true)
+        local result, searchError = Simulator.plan(mode, true, nil, nil, true)
         if searchError then
             return "Team search failed for " .. mode.label .. ": " .. searchError, "error"
         end
@@ -26939,10 +26940,11 @@ function FarmHub.recalculatePlan(notify)
             return "No level data for " .. mode.label .. ".", "warning"
         end
         local team = Brain.simTeam[mode.key]
+        FarmHub.manualPlan = { mode = mode, team = team, current = Modes.equippedProfile() }
         if team and team.better then
-            return mode.label .. ": better team found. Use Equip planned team to apply it.", "success"
+            return mode.label .. ": " .. (team.why or "better team found") .. ". Use Equip planned team.", "success"
         end
-        return mode.label .. ": plan complete. No stronger team found.", "success"
+        return mode.label .. ": " .. (result.teamReason or "no stronger team found"), "default"
     end)
     FarmHub.manualPlanning = nil
     if not ok then
@@ -29748,6 +29750,7 @@ function Simulator.evaluate(Vob, Wob)
         won = Xob.won,
         wave = Xob.wave,
         minutes = Xob.t / 60,
+        seconds = Xob.t,
         aliveAt = Xob.aliveAt,
         fusionWave = Xob.fusionWave,
         total = Vob.total,
@@ -30207,10 +30210,12 @@ function Simulator.bestTeam(Drb, Erb, Frb, Grb)
     end
     local tsb, usb = Wrb or Krb, psb(Irb, Wrb or Krb)
     local fusionTeam = Simulator.fusionLineup(Drb, Irb, Frb)
+    local fusionRun
     if fusionTeam then
         local tested = Simulator.teamFrom(fusionTeam, Drb.map)
         local normal = Simulator.run(Drb, tested, { hpMul = 1 })
         if normal.fusionWave then
+            fusionRun = normal
             local result = Jrb == 1 and normal or Simulator.run(Drb, tested, { hpMul = Jrb })
             local score = psb(fusionTeam, result)
             if score > usb then
@@ -30274,7 +30279,7 @@ function Simulator.bestTeam(Drb, Erb, Frb, Grb)
         for Osb = 1, # Irb do
             for Psb, Qsb in ipairs(Frb) do
                 if Utils.now() - Hrb > Grb then
-                    return Irb, tsb, Jrb, Krb
+                    return Irb, tsb, Jrb, Krb, fusionRun and fusionTeam or nil, fusionRun
                 end
                 local Rsb = false
                 for Ssb, Tsb in ipairs(Irb) do
@@ -30305,7 +30310,7 @@ function Simulator.bestTeam(Drb, Erb, Frb, Grb)
             break
         end
     end
-    return Irb, tsb, Jrb, Krb
+    return Irb, tsb, Jrb, Krb, fusionRun and fusionTeam or nil, fusionRun
 end
 
 function Simulator.evolutions()
@@ -30432,7 +30437,31 @@ function Simulator.testNamekFusion()
         result.fusionWave and ("Fused Hero at wave " .. tostring(result.fusionWave)) or "no fusion before the run ended")
 end
 
-function Simulator.plan(wtb, xtb, ytb, ztb)
+function Simulator.compareTeams(level, current, proposed, currentRun, proposedRun)
+    if currentRun.won ~= proposedRun.won then
+        return proposedRun.won, proposedRun.won and "proposed team clears at normal HP" or "proposed team loses at normal HP"
+    end
+    if currentRun.wave ~= proposedRun.wave then
+        local better = proposedRun.wave > currentRun.wave
+        return better, string.format("normal HP: proposed wave %d, current wave %d", proposedRun.wave, currentRun.wave)
+    end
+    local currentWins, currentWaves = Simulator.exam(level, current)
+    local proposedWins, proposedWaves = Simulator.exam(level, proposed)
+    if proposedWins ~= currentWins or math.abs(proposedWaves - currentWaves) > 0.001 then
+        local better = proposedWins > currentWins or (proposedWins == currentWins and proposedWaves > currentWaves)
+        return better, string.format("stress test: proposed %d wins and %.1f wave points, current %d wins and %.1f wave points",
+            proposedWins, proposedWaves, currentWins, currentWaves)
+    end
+    if currentRun.won and proposedRun.won then
+        local saved = currentRun.seconds - proposedRun.t
+        if math.abs(saved) >= math.max(5, currentRun.seconds * 0.03) then
+            return saved > 0, string.format("same clear and stress result: proposed %.0fs, current %.0fs", proposedRun.t, currentRun.seconds)
+        end
+    end
+    return #proposed > #current, #proposed > #current and "same performance with more equipped slots" or "the two teams performed about the same"
+end
+
+function Simulator.plan(wtb, xtb, ytb, ztb, freshSearch)
     local Atb, Btb = Simulator.levelFor(wtb)
     if wtb.ldOverride then
         Atb = wtb.ldOverride
@@ -30475,7 +30504,7 @@ function Simulator.plan(wtb, xtb, ytb, ztb)
     local Ltb = Modes.rec(wtb.key)
     local savedWinner = Ltb.winTeam
     local sameRotation = (wtb.key ~= "ch" and wtb.key ~= "dc") or (rotation and Ltb.winRotation == rotation)
-    if Config.simTeams and xtb and sameRotation and Modes.provenWinner(wtb, Ltb.winProfile)
+    if Config.simTeams and xtb and not freshSearch and sameRotation and Modes.provenWinner(wtb, Ltb.winProfile)
         and type(savedWinner) == "table" and # savedWinner > 0 then
         local Mtb = Core.session()
         local Ntb = {
@@ -30527,40 +30556,34 @@ function Simulator.plan(wtb, xtb, ytb, ztb)
         end
     end
     if Config.simTeams and xtb then
-        local Ztb, _tb, aub, bub, cub = pcall(Simulator.bestTeam, Dtb, Etb, Simulator.pool(Ctb, Dtb), ytb)
+        local Ztb, _tb, aub, bub, cub, fusionTeam, fusionRun = pcall(Simulator.bestTeam, Dtb, Etb, Simulator.pool(Ctb, Dtb), ytb)
         if Ztb and _tb then
-            local dub = Simulator.profileSig(_tb) ~= profile
-            if dub and Itb.won and (Itb.p or 0) >= 0.92 then
-                local eub = {
-                }
-                for fub, gub in ipairs(_tb) do
-                    table.insert(eub, Units.name(gub.unit_id))
-                end
-                App.log(1, "SIM", string.format("%s: your team already wins with room to spare, so it stays (the search had %s)", wtb.label, table.concat(eub, ", ")))
-                _tb, dub = Etb, false
-            end
-            local hub = ""
-            if dub then
-                local iub, jub = Simulator.exam(Dtb, Etb)
-                local kub, lub = Simulator.exam(Dtb, _tb)
-                local mub = # _tb > # Etb and kub == iub and lub >= jub
-                if kub > iub or (kub == iub and lub > jub) or mub then
-                    hub = string.format(" · up the rising test it won %d tries, yours %d", kub, iub) .. (mub and string.format(", a tie, and it fills %d slots to your %d", # _tb, # Etb) or "")
-                else
-                    local nub = {
-                    }
-                    for oub, pub in ipairs(_tb) do
-                        table.insert(nub, Units.name(pub.unit_id))
-                    end
-                    App.log(1, "SIM", string.format("%s: the search tried %s, but it doesn't go further than your team up the rising test (it won %d tries, yours %d): yours stays", wtb.label, table.concat(nub, ", "), kub, iub))
-                    _tb, dub = Etb, false
-                end
-            end
             local candidate = Simulator.teamFrom(_tb, Dtb.map)
             local qub = Simulator.run(Dtb, candidate, { hpMul = 1 })
-            if dub and Itb.won and not qub.won then
-                _tb, dub = Etb, false
-                qub = { won = Itb.won, wave = Itb.wave }
+            if fusionRun and Simulator.profileSig(fusionTeam) ~= Simulator.profileSig(_tb) then
+                local normal = { won = qub.won, wave = qub.wave, seconds = qub.t }
+                if Simulator.compareTeams(Dtb, _tb, fusionTeam, normal, fusionRun) then
+                    _tb, qub = fusionTeam, fusionRun
+                    candidate = Simulator.teamFrom(_tb, Dtb.map)
+                    aub = Simulator.run(Dtb, candidate, { hpMul = bub })
+                end
+            end
+            local dub = Simulator.profileSig(_tb) ~= profile
+            local hub = ""
+            if dub then
+                local better, reason = Simulator.compareTeams(Dtb, Etb, _tb, Itb, qub)
+                if qub.fusionWave then
+                    reason = reason .. " · proposed Fused Hero at wave " .. tostring(qub.fusionWave)
+                end
+                Itb.teamReason = reason
+                App.log(1, "SIM", wtb.label .. ": " .. reason .. (better and " · proposed team selected" or " · current team kept"))
+                if better then
+                    hub = " · " .. reason
+                else
+                    _tb, dub, qub = Etb, false, Itb
+                end
+            else
+                Itb.teamReason = "the team search kept your current lineup"
             end
             local forecast
             if dub then
@@ -30602,7 +30625,8 @@ function Simulator.plan(wtb, xtb, ytb, ztb)
                 profile = profile,
                 targetProfile = Simulator.profileSig(_tb),
                 rotation = rotation,
-                prediction = forecast
+                prediction = forecast,
+                why = Itb.teamReason
             }
             App.log(1, "SIM", string.format("%s: best team from your units %s (%s)%s", wtb.label, qub.won and "wins" or ("reaches wave " .. qub.wave), table.concat(tub, ", "), dub and (string.format(" · it plays · against enemies ×%.1f: %s at wave %d, yours %s at wave %d", bub, aub.won and "wins" or "falls", aub.wave, cub.won and "wins" or "falls", cub.wave) .. hub) or " · the same as yours"))
             local zub = {
@@ -42491,20 +42515,35 @@ function GUI.build()
         if App.where ~= "lobby" then
             return Trc("Team", "works in the lobby", "warning")
         end
+        if FarmHub.manualPlanning then
+            return Trc("Team", "The team search is still running.", "warning")
+        end
         local Ttc
-        for Utc, Vtc in pairs(Brain.simTeam) do
-            if Vtc.better and (not Ttc or (Vtc.at or 0) > (Ttc.at or 0)) then
-                Ttc = Vtc
+        local manual = FarmHub.manualPlan
+        if manual then
+            if manual.current ~= Modes.equippedProfile() or (manual.team and manual.team.rotation ~= Modes.rotation(manual.mode)) then
+                return Trc("Team", "The lineup or stage changed. Recalculate plan first.", "warning")
+            end
+            Ttc = manual.team
+        else
+            for Utc, Vtc in pairs(Brain.simTeam) do
+                if Vtc.better and (not Ttc or (Vtc.at or 0) > (Ttc.at or 0)) then
+                    Ttc = Vtc
+                end
             end
         end
-        if not Ttc then
-            return Trc("Team", "no better team found yet", "warning")
+        if not (Ttc and Ttc.better) then
+            return Trc("Team", (Ttc and Ttc.why) or "No better team found yet.", "warning")
         end
-        task.spawn(function()
-            FarmHub.equipTeam(Ttc.uuids, "best team for " .. tostring(Ttc.label) .. " (button)")
-            Trc("Team", "equipped: " .. table.concat(Ttc.names or {
-            }, ", "), "success")
-        end)
+        if Ttc.targetProfile ~= Modes.ownedProfile(Ttc.uuids) then
+            return Trc("Team", "Units in the proposed team changed. Recalculate plan first.", "warning")
+        end
+        if FarmHub.equipTeam(Ttc.uuids, "best team for " .. tostring(Ttc.label) .. " (button)") then
+            FarmHub.manualPlan = nil
+            Trc("Team", "equipped: " .. table.concat(Ttc.names or {}, ", "), "success")
+        else
+            Trc("Team", "The game did not equip the full team. Check Activity → Log.", "warning")
+        end
     end)
     bsc:Button("↩️", "Restore My Team", "In the lobby: puts your own team back", function()
         if App.where ~= "lobby" then
