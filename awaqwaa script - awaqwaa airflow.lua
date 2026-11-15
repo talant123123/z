@@ -1093,6 +1093,7 @@ Core.DEFAULTS = {
     chSmart = false,
     chMinP = 0.5,
     skipSummonFx = false,
+    hideMapTextures = false,
     autoSummon = false,
     summonBanner = "",
     tokenFloor = 0,
@@ -15956,7 +15957,15 @@ function Utils.writeJson(qb, rb)
             makefolder(Core.FOLDER)
         end
     end)
-    pcall(writefile, qb, Utils.json(rb))
+    local encoded, data = pcall(HttpService.JSONEncode, HttpService, rb)
+    if not encoded then
+        return false, data
+    end
+    local written, errorMessage = pcall(writefile, qb, data)
+    if written and errorMessage == false then
+        return false, "writefile returned false for " .. qb
+    end
+    return written, errorMessage
 end
 
 function Utils.fmt(sb)
@@ -16136,9 +16145,14 @@ function App.saveSoon()
 end
 
 function App.saveNow()
-    Utils.writeJson(Core.SETTINGS, Config)
-    Utils.writeJson(Core.BRAIN, Brain)
+    local settingsSaved, settingsError = Utils.writeJson(Core.SETTINGS, Config)
+    local brainSaved, brainError = Utils.writeJson(Core.BRAIN, Brain)
+    if not settingsSaved or not brainSaved then
+        App.log(1, "SAVE", tostring(not brainSaved and brainError or settingsError))
+        App.saveAt = Utils.now() + 10
+    end
     App.flush()
+    return brainSaved
 end
 do
     local ac = Utils.readJson(Core.BRAIN) or {
@@ -16151,6 +16165,7 @@ do
     Brain.modes = bc(ac.modes) or {
     }
     Brain.testTeam = bc(ac.testTeam)
+    Brain.namekTest = bc(ac.namekTest)
     Brain.blocked = bc(ac.blocked) or {
     }
     Brain.caps = bc(ac.caps) or {
@@ -17399,12 +17414,23 @@ function Units.allyBuff(ug)
         uptime = math.min(1,
         (wg.ally.time or 0) / math.max(1,
         xg)),
-        attack = vg.active_attack
+        attack = vg.active_attack,
+        chain = ug == "erwin" or ug == "wendy" or ug == "leafa_evolved",
     }
+end
+
+function Units.buffAverage(buff, copies, base, chainAllowed)
+    local capacity = copies * buff.uptime
+    local regular = base * math.min(1, capacity)
+    if not (buff.chain and chainAllowed) or copies < 2 then return regular end
+    -- Forecast a relay with limited coverage. The live test measures the actual buff.
+    local peak = math.min(1, (1 + base) ^ (copies - 1) - 1)
+    return math.max(regular, peak * math.min(1, capacity) * 0.65)
 end
 
 function Units.buffCopies(yg)
     local zg = math.max(1, math.ceil((tonumber(yg.cd) or 60) / math.max(1, tonumber(yg.time) or 30) - 0.001))
+    if yg.chain and Config.actives and Config.community then return math.max(zg, 5) end
     local Ag = Brain.stack [yg.attack]
     if Ag and Ag.stacks then
         local Bg = 0
@@ -17435,7 +17461,8 @@ function Units.idol(Eg)
 end
 
 function Units.mult(Jg, Kg)
-    local Lg = tostring(Jg.uuid) .. Kg
+    local trait, tier = Units.trait(Jg)
+    local Lg = table.concat({tostring(Jg.uuid), tostring(Jg.unit_id), tostring(Jg.xp), tostring(trait), tostring(tier), Kg}, ":")
     local Mg = Units._mult [Lg]
     if Mg and Utils.now() - Mg.t < 60 then
         return Mg.v
@@ -17993,7 +18020,7 @@ function Modes.infReach(sk)
     if (tonumber(uk.waveN) or 0) > 0 then
         return uk.waveSum / uk.waveN, true
     end
-    local vk = Brain.simRes [sk]
+    local vk = Modes.sim({ key = sk, kind = "infinite" })
     if vk and tonumber(vk.wave) then
         return vk.wave, false
     end
@@ -18160,18 +18187,22 @@ function Modes.chName(Wk)
     return Xk and Xk.name or tostring(Wk):gsub("_", " ")
 end
 
-function Modes.chOk(Yk)
+function Modes.chOk(Yk, equippedOnly)
     local Zk = Yk.kind == "daily" and Brain.live.daily and Brain.live.daily.challenge or Yk.challenge
     if Zk and table.find(Config.chSkip or {
     }, Zk) then
         return false, Modes.chName(Zk) .. " is on your skip list"
     end
     if Config.chSmart then
-        local _k = Modes.sim(Yk)
-        local al = Brain.simTeam and Brain.simTeam [Yk.key]
+        local _k = Modes.sim(Yk, equippedOnly)
         local bl = tonumber(Config.chMinP) or 0.5
-        if _k and _k.p and _k.p < bl and not (al and al.better and al.won) then
-            return false, string.format("the simulator gives your team %d%%, under the %d%% you set", math.floor(_k.p * 100 + 0.5), math.floor(bl * 100 + 0.5))
+        local canSearch = not equippedOnly and Config.sim and Config.simTeams and Config.autoTeam and not Modes.teamPlan(Yk)
+        local probability = _k and _k.p
+        if probability and Yk.kind == "daily" and FarmHub.matchOn(Yk) then
+            probability = math.max(probability, Modes.MATCHED_DAILY_P)
+        end
+        if probability and probability < bl and not (_k.trust and not _k.trust.ok) and not canSearch then
+            return false, string.format("estimated win chance %d%%, under the %d%% you set", math.floor(probability * 100 + 0.5), math.floor(bl * 100 + 0.5))
         end
     end
     return true
@@ -19135,16 +19166,18 @@ function Modes.list()
     local Eq = os.time()
     local function Fq(Gq)
         Gq.rec = Modes.rec(Gq.key)
+        local rotation = Modes.rotation(Gq)
         local Hq = (Gq.rec.restUntil or 0) > Eq and Gq.kind ~= "portal"
+            and (not rotation or Gq.rec.restRotation == rotation)
         if Hq and Gq.kind == "daily" and Config.dailyLoop and (Gq.rec.restWhy == "losses" or (Gq.rec.restWhy == nil and math.abs(Gq.rec.restUntil - (tonumber(Gq.rec.last) or 0) - 6 * 3600) <= 5)) then
             Hq = false
         end
         if Hq or not Modes.allowed(Gq) then
             return
         end
-        if Gq.kind == "daily" and not Config.dailyMatch and not Config.dailyLoop then
+        if Gq.kind == "daily" and not FarmHub.matchOn(Gq) and not Config.dailyLoop then
             local Iq, Jq = pcall(Modes.needsHelp, Gq)
-            if Iq and Jq then
+            if Iq and Jq and not (Config.sim and Config.simTeams and Config.autoTeam and not Modes.teamPlan(Gq)) then
                 Modes.skipped [Gq.key] = Gq.label .. ": the simulator says your team can't win it alone, and Matchmake The Daily is off"
                 return
             end
@@ -19166,6 +19199,7 @@ function Modes.list()
             key = "dc",
             kind = "daily",
             level = "__DAILY_CHALLENGE",
+            rotation = Mq.daily.uuid,
             diff = "Hard",
             value = Mq.daily.value or 300,
             label = "Daily Challenge",
@@ -19179,6 +19213,7 @@ function Modes.list()
             key = "ch",
             kind = "challenge",
             level = Mq.normal.level,
+            rotation = Mq.normal.uuid,
             diff = "Hard",
             value = Mq.normal.value or 100,
             label = "Challenge · " .. Modes.levelName(Mq.normal.level),
@@ -19497,33 +19532,107 @@ function Modes.teamSig()
     return Modes._sig
 end
 
-function Modes.sim(Ss)
-    local Ts = Config.sim and Brain.simRes [Ss.key]
-    if Ts and Ts.p and os.time() - (Ts.at or 0) < 6 * 3600 and (Ts.sig == Modes.teamSig() or Ts.sig == Modes.ownSig()) then
-        return Ts
+function Modes.liveChallenge(key)
+    if key == "dc" then
+        return Brain.live.daily
+    elseif key == "ch" then
+        return Brain.live.normal
     end
-    return nil
 end
 
-function Modes.ownSig()
-    local Us = (type(Brain.savedTeam) == "table" and # Brain.savedTeam > 0 and Brain.savedTeam) or (Brain.train.on and Brain.train.on.base)
-    if type(Us) ~= "table" or # Us == 0 then
+function Modes.rotation(mode)
+    local live = Modes.liveChallenge(mode.key)
+    if mode.rotation ~= nil then
+        return tostring(mode.rotation)
+    end
+    if live and live.uuid ~= nil and (mode.key == "dc" or (live.level == mode.level and live.challenge == mode.challenge)) then
+        return tostring(live.uuid)
+    end
+end
+
+function Modes.outcomes(mode)
+    local record = mode.rec or Modes.rec(mode.key)
+    if mode.key ~= "ch" and mode.key ~= "dc" then
+        return record
+    end
+    local rotation = Modes.rotation(mode)
+    if rotation and record.rotationStats and record.rotationStats.rotation == rotation then
+        return record.rotationStats
+    end
+    return { runs = 0, wins = 0, sec = 0, timed = 0, streak = 0 }
+end
+
+function Modes.equippedProfile()
+    local units = {}
+    for _, entry in ipairs(Units.equipped()) do
+        table.insert(units, entry.u)
+    end
+    return Simulator.profileSig(units)
+end
+
+function Modes.ownedProfile(uuids)
+    local session = Core.session()
+    if not session or type(uuids) ~= "table" or # uuids == 0 then
         return nil
     end
-    if Modes._ownAt and Utils.now() - Modes._ownAt < 20 then
-        return Modes._own
+    local units = {}
+    for _, uuid in ipairs(uuids) do
+        local unit = session.collection:get_unit_by_uuid(uuid)
+        if not unit then
+            return nil
+        end
+        table.insert(units, unit)
     end
-    local Vs = Core.session()
-    local Ws = {
-    }
-    for Xs, Ys in ipairs(Us) do
-        local Zs = Vs and Vs.collection:get_unit_by_uuid(Ys)
-        if Zs then
-            table.insert(Ws, Zs)
+    return Simulator.profileSig(units)
+end
+
+function Modes.teamPlan(mode, base)
+    local plan = Brain.simTeam[mode.key]
+    if not Config.sim or not Config.simTeams or not plan or not plan.profile or plan.rotation ~= Modes.rotation(mode) or os.time() - (tonumber(plan.at) or 0) >= 120 then
+        return nil
+    end
+    base = base or Modes.ownedProfile(Brain.savedTeam or (Brain.train.on and Brain.train.on.base)) or Modes.equippedProfile()
+    if plan.profile == base and plan.targetProfile and plan.targetProfile == Modes.ownedProfile(plan.uuids) then
+        return plan
+    end
+end
+
+function Modes.provenWinner(mode, profile)
+    local kind = mode.kind
+    if kind ~= "daily" and kind ~= "challenge" and kind ~= "story" and kind ~= "raid" then
+        return nil
+    end
+    local record = mode.rec or Modes.rec(mode.key)
+    local rotation = Modes.rotation(mode)
+    if record.winProfile and record.winProfile == profile
+        and ((kind ~= "daily" and kind ~= "challenge") or (rotation and record.winRotation == rotation)) then
+        return { p = 0.7, won = true, margin = "won here with this team" }
+    end
+end
+
+function Modes.sim(mode, equippedOnly)
+    if not Config.sim then
+        return nil
+    end
+    if not equippedOnly and Config.autoTeam and Config.simTeams then
+        local plan = Modes.teamPlan(mode)
+        if plan and plan.better and plan.prediction then
+            return plan.prediction
         end
     end
-    Modes._own, Modes._ownAt = # Ws > 0 and Simulator.sig(Ws) or nil, Utils.now()
-    return Modes._own
+    local prediction = Brain.simRes[mode.key]
+    local profile = Modes.equippedProfile()
+    if not equippedOnly and Config.autoTeam and Config.simTeams then
+        profile = Modes.ownedProfile(Brain.savedTeam or (Brain.train.on and Brain.train.on.base)) or profile
+    end
+    local proven = Modes.provenWinner(mode, profile)
+    if prediction and prediction.p and prediction.profile == profile and prediction.rotation == Modes.rotation(mode)
+        and os.time() - (tonumber(prediction.at) or 0) < 6 * 3600 then
+        if not proven or (prediction.p >= proven.p and not (prediction.trust and not prediction.trust.ok)) then
+            return prediction
+        end
+    end
+    return proven
 end
 
 function Modes.nextAct(_s)
@@ -19538,24 +19647,24 @@ function Modes.nextAct(_s)
     return bt or nil
 end
 
-function Modes.needsHelp(et)
-    local ft, gt = pcall(Modes.sim, et)
-    if ft and type(gt) == "table" and tonumber(gt.p) ~= nil then
-        return tonumber(gt.p) < 0.5
+function Modes.needsHelp(mode, equippedOnly)
+    local prediction = Modes.sim(mode, equippedOnly)
+    if prediction and not (prediction.trust and not prediction.trust.ok) then
+        return prediction.p < 0.5
     end
-    local ht, jt = pcall(Modes.rec, et.key)
-    return ht and type(jt) == "table" and (tonumber(jt.streak) or 0) >= 2 or false
+    local record = Modes.outcomes(mode)
+    return (tonumber(record.soloStreak) or 0) >= 2
 end
 Modes.MATCHED_DAILY_P = 0.7
 
 function Modes.winP(kt)
-    if kt.kind == "daily" and Config.dailyMatch and not Config.dailyLoop then
+    if kt.kind == "daily" and FarmHub.matchOn(kt) and not Config.dailyLoop then
         local lt, mt = pcall(Modes.needsHelp, kt)
         if lt and mt then
             return Modes.MATCHED_DAILY_P
         end
     end
-    local nt = kt.rec
+    local nt = Modes.outcomes(kt)
     local ot = kt.p0 or Modes.PRIOR_WIN [kt.kind] or 0.7
     local pt = Modes.sim(kt)
     if pt and not (pt.trust and not pt.trust.ok) then
@@ -19568,10 +19677,11 @@ function Modes.winP(kt)
 end
 
 function Modes.minutes(ut)
-    local vt = ut.rec
+    local vt = Modes.outcomes(ut)
     local wt = tonumber(vt.timed) or 0
-    local xt = ut.kind == "infinite" and Brain.simRes [ut.key]
-    local yt = (wt > 0 and vt.sec > 0) and (vt.sec / wt / 60) or (xt and tonumber(xt.minutes)) or Modes.PRIOR_MIN [ut.kind] or 6
+    local xt = Modes.sim(ut)
+    local estimate = xt and (xt.won or ut.kind == "infinite") and not (xt.trust and not xt.trust.ok) and tonumber(xt.minutes)
+    local yt = (wt > 0 and vt.sec > 0) and (vt.sec / wt / 60) or (estimate and estimate > 0 and estimate) or Modes.PRIOR_MIN[ut.kind] or 6
     return yt + Modes.OVERHEAD
 end
 
@@ -19593,7 +19703,7 @@ function Modes.score(zt)
             Ft, zt.train = Jt, Ht
         end
     end
-    if zt.rec.runs < 2 then
+    if Modes.outcomes(zt).runs < 2 then
         Ft = Ft * (1 + Config.exploreBonus)
     end
     return Ft
@@ -24249,6 +24359,51 @@ function FarmHub.bannerCost(GU)
     }
 end
 
+function GUI.setMapTexturesHidden(enabled)
+    local current = GUI.mapTextureFilter
+    if current then
+        if enabled then return end
+        GUI.mapTextureFilter = nil
+        current.connection:Disconnect()
+        for decal, previous in pairs(current.original) do
+            pcall(function()
+                decal.LocalTransparencyModifier = previous
+            end)
+        end
+        return
+    end
+    if not enabled then return end
+
+    local filter = { original = setmetatable({}, { __mode = "k" }) }
+    GUI.mapTextureFilter = filter
+    local function hide(instance)
+        if not instance:IsA("Decal") or filter.original[instance] ~= nil or not instance:IsDescendantOf(workspace) then
+            return
+        end
+        local units = workspace:FindFirstChild("_UNITS")
+        if units and instance:IsDescendantOf(units) then return end
+        local ancestor = instance.Parent
+        while ancestor and ancestor ~= workspace do
+            if ancestor:IsA("Model") and ancestor:FindFirstChildOfClass("Humanoid") then return end
+            ancestor = ancestor.Parent
+        end
+        local ok, previous = pcall(function()
+            local modifier = instance.LocalTransparencyModifier
+            instance.LocalTransparencyModifier = 1
+            return modifier
+        end)
+        if ok then filter.original[instance] = previous end
+    end
+    filter.connection = workspace.DescendantAdded:Connect(hide)
+    task.spawn(function()
+        for index, instance in ipairs(workspace:GetDescendants()) do
+            if GUI.mapTextureFilter ~= filter then return end
+            hide(instance)
+            if index % 250 == 0 then task.wait() end
+        end
+    end)
+end
+
 function FarmHub.quietFx(KU)
     local MU = Config.skipSummonFx and not KU
     local NU = Core.svc("SummonFX")
@@ -24392,12 +24547,13 @@ function Training.same(JV, KV)
     local LV = {
     }
     for MV, NV in ipairs(JV) do
-        LV [NV] = true
+        LV[NV] = (LV[NV] or 0) + 1
     end
-    for OV, PV in ipairs(KV) do
-        if not LV [PV] then
+    for _, uuid in ipairs(KV) do
+        if (LV[uuid] or 0) == 0 then
             return false
         end
+        LV[uuid] = LV[uuid] - 1
     end
     return true
 end
@@ -24594,7 +24750,7 @@ function Training.eligible(ZW)
     if _W.runs >= 3 and _W.wins / _W.runs < 0.8 then
         return false, "your farm wins it less than 80% of the time"
     end
-    local aX = Brain.simRes [ZW.key]
+    local aX = Modes.sim(ZW)
     if aX and aX.trust and not aX.trust.ok then
         return false, "the simulator doesn't match real runs there yet"
     end
@@ -25922,6 +26078,35 @@ function FarmHub.launch(J3)
     if not K3 then
         App.log(1, "ERROR", "relics: " .. tostring(L3))
     end
+    local live = Modes.liveChallenge(J3.key)
+    if live then
+        local rotation = Modes.rotation(J3)
+        if rotation and rotation ~= tostring(live.uuid) then
+            Modes.lastScored = nil
+            return false
+        end
+        local test = Brain.testTeam
+        local override = Brain.trial or (test and (test.left or 0) > 0 and test.key == J3.key)
+            or (J3.kind == "daily" and Config.dailyLoop)
+        if not override then
+            if Config.sim and not FarmHub.simFresh(J3) then
+                local ok, result = pcall(Simulator.plan, J3, false)
+                if not ok then App.log(1, "ERROR", "sim with equipped team: " .. tostring(result)) end
+            end
+            local accepted, reason = Modes.chOk(J3, true)
+            if accepted and J3.kind == "daily" and not FarmHub.matchOn(J3) and Modes.needsHelp(J3, true) then
+                accepted, reason = false, "the equipped team needs matchmaking"
+            end
+            if not accepted then
+                App.log(1, "MODE", J3.label .. ": " .. reason)
+                local rec = Modes.rec(J3.key)
+                rec.restUntil, rec.restWhy, rec.restRotation = os.time() + 120, "equipped team", rotation
+                Modes.lastScored = nil
+                App.backoff("launch", 20)
+                return false
+            end
+        end
+    end
     Brain.watch = nil
     for M3, N3 in pairs(Modes.PORTALS) do
         if (J3.kind == "portal" and J3.level == N3.level) or (J3.portalMap and J3.level == N3.from) then
@@ -25952,7 +26137,8 @@ function FarmHub.launch(J3)
         diff = J3.diff,
         label = J3.label,
         at = os.time(),
-        value = J3.value
+        value = J3.value,
+        rotation = Modes.rotation(J3)
     }
     if Brain.nextMode == J3.key then
         Brain.nextMode = nil
@@ -25962,12 +26148,12 @@ function FarmHub.launch(J3)
     App.status("Mode", "starting " .. J3.label)
     if FarmHub.matchOn(J3) then
         FarmHub.matchmake(J3)
-        local P3, Q3 = pcall(Modes.needsHelp, J3)
+        local P3, Q3 = pcall(Modes.needsHelp, J3, true)
         if App.alive and J3.kind == "daily" and P3 and Q3 then
             App.log(1, "MODE", "nobody joined the Daily Challenge, and the simulator says your team can't win it alone: not played alone, matchmaking again in 10 min")
             Brain.pending = nil
             local R3 = Modes.rec(J3.key)
-            R3.restUntil, R3.restWhy = os.time() + 600, "alone"
+            R3.restUntil, R3.restWhy, R3.restRotation = os.time() + 600, "alone", Modes.rotation(J3)
             Modes.lastScored = nil
             App.backoff("launch", 5)
             return false
@@ -25981,7 +26167,8 @@ function FarmHub.launch(J3)
         App.log(1, "MODE", "join refused on " .. O3.Name .. " (" .. tostring(V3 or U3) .. ")" .. (V3 and (": " .. J3.label .. " rests for half an hour") or ""))
         Brain.pending = nil
         if V3 then
-            Modes.rec(J3.key).restUntil, Modes.rec(J3.key).restWhy = os.time() + 1800, "refused"
+            local rec = Modes.rec(J3.key)
+            rec.restUntil, rec.restWhy, rec.restRotation = os.time() + 1800, "refused", Modes.rotation(J3)
             Modes.lastScored = nil
         end
         App.backoff("launch", V3 and 5 or 15)
@@ -26009,7 +26196,7 @@ function FarmHub.launch(J3)
         App.log(1, "MODE", "no teleport after 45s for " .. J3.label .. " — leaving the pad")
         App.request("leave", "request_leave_lobby", O3.Name)
         local _3 = Modes.rec(J3.key)
-        _3.restUntil, _3.restWhy = os.time() + 900, "no teleport"
+        _3.restUntil, _3.restWhy, _3.restRotation = os.time() + 900, "no teleport", Modes.rotation(J3)
         Brain.pending = nil
         App.backoff("launch", 10)
     end
@@ -26276,7 +26463,11 @@ end
 
 function FarmHub.simFresh(q5)
     local r5 = Brain.simRes [q5.key]
-    return r5 and r5.sig == Modes.teamSig() and os.time() - (r5.at or 0) < 6 * 3600 or false
+    if not r5 or r5.rotation ~= Modes.rotation(q5) then
+        return false
+    end
+    local ttl = r5.none and 120 or 6 * 3600
+    return os.time() - (tonumber(r5.at) or 0) < ttl and r5.profile == Modes.equippedProfile()
 end
 
 function FarmHub.relicClash(s5)
@@ -26380,6 +26571,18 @@ function FarmHub.relicBack()
 end
 
 function FarmHub.equipTeam(X5, Y5)
+    local session = Core.session()
+    if not session or type(X5) ~= "table" or #X5 == 0 then
+        return false
+    end
+    local requested = {}
+    for _, uuid in ipairs(X5) do
+        if requested[uuid] or not session.collection:get_unit_by_uuid(uuid) then
+            App.log(1, "TEAM", "the requested team contains a duplicate or missing unit: " .. tostring(uuid))
+            return false
+        end
+        requested[uuid] = true
+    end
     local Z5 = {
     }
     for _5, a6 in ipairs(Units.equipped()) do
@@ -26397,11 +26600,7 @@ function FarmHub.equipTeam(X5, Y5)
     if not e6 then
         App.log(1, "ERROR", "relic clash: " .. tostring(f6))
     end
-    local g6 = {
-    }
-    for h6, i6 in ipairs(X5) do
-        g6 [i6] = true
-    end
+    local g6 = requested
     local j6, k6 = false, {
     }
     for l6 = 1, 4 do
@@ -26563,14 +26762,21 @@ function FarmHub.restoreTeam()
     if not Brain.savedTeam then
         return false
     end
-    local g7 = {
-    }
-    for h7, i7 in ipairs(Brain.savedTeam) do
-        if Core.session() and Core.session().collection:get_unit_by_uuid(i7) then
-            table.insert(g7, i7)
+    local session = Core.session()
+    if not session then return false end
+    local g7, seen = {}, {}
+    for _, uuid in ipairs(Brain.savedTeam) do
+        if not seen[uuid] and session.collection:get_unit_by_uuid(uuid) then
+            table.insert(g7, uuid)
+            seen[uuid] = true
         end
     end
     Brain.savedTeam = nil
+    if #g7 == 0 then
+        App.log(1, "TEAM", "none of the saved team's units are still owned; keeping the equipped team")
+        App.saveSoon()
+        return #Units.equipped() > 0
+    end
     Brain.savedTeam = not FarmHub.equipTeam(g7, "your own team back") and g7 or nil
     if not Brain.savedTeam then
         local j7, k7 = pcall(FarmHub.relicBack)
@@ -26579,18 +26785,16 @@ function FarmHub.restoreTeam()
         end
     end
     App.saveSoon()
-    return true
+    return Brain.savedTeam == nil
 end
 FarmHub.QUICK_SEARCH = 7
 
 function FarmHub.teamFor(l7, m7)
     if l7.key == "dg" then
-        if Brain.savedTeam then
-            FarmHub.restoreTeam()
-        end
-        return
+        return not Brain.savedTeam or FarmHub.restoreTeam()
     end
     local n7 = Core.session()
+    if not n7 then return false end
     local o7 = Brain.testTeam
     if o7 and (o7.left or 0) > 0 and o7.key == l7.key and type(o7.uuids) == "table" then
         local p7 = 0
@@ -26599,14 +26803,14 @@ function FarmHub.teamFor(l7, m7)
                 p7 = p7 + 1
             end
         end
-        if p7 == # o7.uuids then
+        if p7 > 0 and p7 == # o7.uuids then
             if Brain.train.on then
                 Training.home()
             end
             if not Training.same(Training.team(), o7.uuids) then
-                FarmHub.equipTeam(o7.uuids, "team test: " .. tostring(o7.label))
+                return FarmHub.equipTeam(o7.uuids, "team test: " .. tostring(o7.label))
             end
-            return
+            return true
         end
     end
     if Config.dailyLoop and l7.kind == "daily" and type(Config.dailyTeam) == "table" and # Config.dailyTeam > 0 then
@@ -26648,13 +26852,13 @@ function FarmHub.teamFor(l7, m7)
                 Training.home()
             end
             if not Training.same(Training.team(), s7) then
-                FarmHub.equipTeam(s7, "your team for the Daily Challenge")
+                return FarmHub.equipTeam(s7, "your team for the Daily Challenge")
             end
-            return
+            return true
         end
         App.log(1, "TEAM", "your Daily Challenge team has a unit you no longer own: the search picks instead")
     end
-    local I7 = Brain.savedTeam or Training.team()
+    local I7 = Brain.savedTeam or (Brain.train.on and Brain.train.on.base) or Training.team()
     local J7 = {
     }
     for K7, L7 in ipairs(I7) do
@@ -26663,12 +26867,14 @@ function FarmHub.teamFor(l7, m7)
             table.insert(J7, M7)
         end
     end
-    if # J7 == 0 then
-        return
+    if Brain.savedTeam and (#J7 == 0 or #J7 ~= #I7) then
+        return FarmHub.restoreTeam()
     end
-    local N7 = Simulator.sig(J7)
-    local O7 = Brain.simTeam [l7.key]
-    if not (O7 and O7.base == N7 and os.time() - (tonumber(O7.at) or 0) < 120) then
+    if # J7 == 0 then
+        return false
+    end
+    local N7 = Simulator.profileSig(J7)
+    if Config.sim and Config.simTeams and not Modes.teamPlan(l7, N7) then
         App.status("Mode", "looking for the best team for " .. tostring(l7.label))
         Simulator.memoOn()
         local P7, Q7 = pcall(Simulator.plan, l7, true, m7 or 20, J7)
@@ -26677,9 +26883,8 @@ function FarmHub.teamFor(l7, m7)
             App.log(1, "ERROR", "team search: " .. tostring(Q7))
         end
     end
-    local R7 = Brain.simTeam [l7.key]
-    local S7 = R7 and R7.base == N7 and os.time() - (tonumber(R7.at) or 0) < 120
-    local T7 = (S7 and R7.better and type(R7.uuids) == "table" and # R7.uuids > 0) and R7.uuids or I7
+    local R7 = Modes.teamPlan(l7, N7)
+    local T7 = R7 and R7.better and R7.uuids or I7
     local U7 = Brain.train.on
     if U7 and not Training.same(U7.base or {
     }, T7) then
@@ -26688,11 +26893,11 @@ function FarmHub.teamFor(l7, m7)
     end
     if not U7 and not Training.same(Training.team(), T7) then
         if T7 == I7 and Brain.savedTeam then
-            FarmHub.restoreTeam()
-        else
-            FarmHub.equipTeam(T7, (S7 and R7.why) and (R7.why .. ": " .. tostring(l7.label)) or ("the simulator's best team for " .. tostring(l7.label)))
+            return FarmHub.restoreTeam()
         end
+        return FarmHub.equipTeam(T7, (R7 and R7.why) and (R7.why .. ": " .. tostring(l7.label)) or ("the simulator's best team for " .. tostring(l7.label)))
     end
+    return true
 end
 
 function FarmHub.recalculatePlan(notify)
@@ -26973,7 +27178,7 @@ function FarmHub.run()
             if FarmHub.scanning and Utils.now() - FarmHub.scanning < 30 then
                 V8 = nil
             end
-            if Config.play and Config.sim and V8 and not FarmHub.simFresh(V8) and V8.kind ~= "event" and V8.kind ~= "dungeon" then
+            if not FarmHub.manualPlanning and Config.play and Config.sim and V8 and not FarmHub.simFresh(V8) and V8.kind ~= "event" and V8.kind ~= "dungeon" then
                 App.status("Mode", "simulating " .. V8.label .. " with your team…")
                 local d9, e9 = pcall(Simulator.plan, V8, false)
                 if not d9 then
@@ -26983,6 +27188,8 @@ function FarmHub.run()
                     Brain.simRes [V8.key] = {
                         none = true,
                         sig = Modes.teamSig(),
+                        profile = Modes.equippedProfile(),
+                        rotation = Modes.rotation(V8),
                         at = os.time()
                     }
                 end
@@ -27001,20 +27208,30 @@ function FarmHub.run()
                         pcall(FarmHub.launch, V8)
                     end
                 else
+                    local teamReady = true
                     if Config.autoTeam or (Brain.testTeam and (Brain.testTeam.left or 0) > 0 and Brain.testTeam.key == V8.key) then
-                        pcall(FarmHub.teamFor, V8)
+                        local ok, equipped = pcall(FarmHub.teamFor, V8)
+                        teamReady = ok and equipped
+                        if not teamReady then
+                            App.log(1, "TEAM", ok and "waiting for the requested team" or tostring(equipped))
+                            Modes.lastScored = nil
+                            App.backoff("launch", 15)
+                        end
                     end
-                    local i9, j9 = pcall(Training.apply, V8)
-                    if not i9 then
-                        App.log(1, "ERROR", "training: " .. tostring(j9))
-                        pcall(Training.home)
-                    end
-                    local k9, l9 = pcall(Hunt.charmTick, V8)
-                    if not k9 then
-                        App.log(1, "ERROR", "charm: " .. tostring(l9))
-                    end
-                    if not (f9 and f9.Value) then
-                        pcall(FarmHub.launch, V8)
+                    if teamReady then
+                        local i9, j9 = pcall(Training.apply, V8)
+                        if not i9 then
+                            App.log(1, "ERROR", "training: " .. tostring(j9))
+                            pcall(Training.home)
+                        end
+                        local k9, l9 = pcall(Hunt.charmTick, V8)
+                        if not k9 then
+                            App.log(1, "ERROR", "charm: " .. tostring(l9))
+                        end
+                        if not (f9 and f9.Value) then
+                            local launched, launchError = pcall(FarmHub.launch, V8)
+                            if not launched then App.log(1, "ERROR", "launch: " .. tostring(launchError)) end
+                        end
                     end
                 end
             elseif not Config.play then
@@ -27364,6 +27581,15 @@ function Simulator.autoskip()
     return true
 end
 
+function Simulator.calKey(key, ld, challenge, rotation)
+    if key == "ch" then
+        return string.format("ch@%q:%q", tostring(ld.id), tostring(challenge or ld._challenge))
+    elseif key == "dc" then
+        return "dc@" .. tostring(rotation or ld._challenge_uuid or "unknown")
+    end
+    return key
+end
+
 function Simulator.cal(kcb)
     local lcb = Brain.simCal [kcb]
     if not lcb then
@@ -27401,6 +27627,7 @@ Simulator.LD_FIELDS = {
     "_OVERRIDE_GAMEMODE",
     "_difficulty",
     "_challenge",
+    "_challenge_uuid",
     "infinite",
     "_use_max",
     "_override_infinite_bound_waves",
@@ -27459,6 +27686,8 @@ function Simulator.slim(Bcb)
             wave = Bcb._override_infinite_final_boss_wave.wave,
             cfg = Bcb._override_infinite_final_boss_wave.final_boss_config_id
         }
+    elseif type(Bcb._final) == "table" then
+        Ccb._final = table.clone(Bcb._final)
     end
     if type(Bcb._override_infinite_boss_interval__skip_waves) == "table" then
         Ccb._skip = {
@@ -27466,6 +27695,8 @@ function Simulator.slim(Bcb)
         for Gcb in pairs(Bcb._override_infinite_boss_interval__skip_waves) do
             Ccb._skip [tostring(Gcb)] = true
         end
+    elseif type(Bcb._skip) == "table" then
+        Ccb._skip = table.clone(Bcb._skip)
     end
     return Ccb
 end
@@ -27474,9 +27705,9 @@ local function Hcb(Icb, ...)
     return Jcb and tonumber(Kcb) or nil
 end
 
-function Simulator.info(Lcb, Mcb, Ncb, Ocb)
-    local Pcb = Brain.simCal [Mcb] or {
-    }
+function Simulator.info(Lcb, Mcb, Ncb, Ocb, rotation)
+    local calKey = Simulator.calKey(Mcb, Lcb, Ncb, rotation)
+    local Pcb = Brain.simCal[calKey] or {}
     local Qcb = Lcb._OVERRIDE_GAMEMODE or Lcb._gamemode or (Lcb.infinite and "infinite") or "story"
     local Rcb = Lcb.id == "__DAILY_CHALLENGE"
     local Scb = (Brain.live.event and Lcb.id == Brain.live.event.level) and true or false
@@ -27556,9 +27787,10 @@ function Simulator.info(Lcb, Mcb, Ncb, Ocb)
         gm = Qcb,
         total = (type(Lcb._dungeon) == "table" and 15) or tonumber(Lcb._override_infinite_bound_waves) or Simulator.boundEnd(Lcb,
         # gdb,
-        Mcb) or (((not bdb) or Lcb._infinite_bound_level) and # gdb > 0 and # gdb) or (Lcb._infinite_bound_level and 15) or (bdb and Simulator.INF_CAP) or 30,
+        calKey) or (((not bdb) or Lcb._infinite_bound_level) and # gdb > 0 and # gdb) or (Lcb._infinite_bound_level and 15) or (bdb and Simulator.INF_CAP) or 30,
         hpRaw = pdb,
         hpScale = pdb * (tonumber(Pcb.hpCal) or (function()
+            if calKey ~= Mcb then return nil end
             local xdb,
             ydb = pcall(Reports.hiveHp,
             Mcb)
@@ -27913,35 +28145,37 @@ function Simulator.wave(Heb, Ieb, Jeb)
             end
         end
     end
-    local xfb = Heb.fx and Heb.fx.starfall
-    local yfb = xfb and Heb.cfgById and Heb.cfgById.star_golem_1
-    if yfb and (tonumber(xfb.perWave) or 0) > 0 then
-        if Ieb <= 1 then
-            Heb.starAcc = 0
-        end
-        Heb.starAcc = (Heb.starAcc or 0) + xfb.perWave
-        while Heb.starAcc >= 1 do
-            local zfb = Simulator.enemy(Heb, yfb, Ieb)
-            if zfb then
-                local Afb = tonumber(xfb.hpK) or 1
-                zfb.hp, zfb.max = zfb.hp * Afb, zfb.max * Afb
-                table.insert(Keb, zfb)
+    local starfall = Heb.fx and Heb.fx.starfall
+    local starGolem = starfall and Heb.cfgById and Heb.cfgById.star_golem_1
+    local perWave = starfall and tonumber(starfall.perWave) or 0
+    if starGolem and perWave > 0 then
+        local count = math.floor(Ieb * perWave + 1e-8) - math.floor((Ieb - 1) * perWave + 1e-8)
+        for _ = 1, count do
+            local enemy = Simulator.enemy(Heb, starGolem, Ieb)
+            if enemy then
+                local hpMul = tonumber(starfall.hpK) or 1
+                enemy.hp, enemy.max = enemy.hp * hpMul, enemy.max * hpMul
+                table.insert(Keb, enemy)
             end
-            Heb.starAcc = Heb.starAcc - 1
         end
     end
-    local Bfb = tonumber(Heb.cal and Heb.cal.countCal)
-    if Bfb and not Jeb and math.abs(Bfb - 1) > 0.05 and # Keb > 0 then
-        local Cfb = math.max(1, math.floor(# Keb * Bfb + 0.5))
-        local Dfb = # Keb
-        if Cfb > Dfb then
-            for Efb = 1, Cfb - Dfb do
-                local Ffb = Keb [((Efb - 1) % Dfb) + 1]
-                table.insert(Keb, table.clone(Ffb))
+    local countMul = tonumber(Heb.cal and Heb.cal.countCal)
+    if countMul and not Jeb and math.abs(countMul - 1) > 0.05 and # Keb > 0 then
+        local target = math.max(1, math.floor(# Keb * countMul + 0.5))
+        if target > # Keb then
+            local ordinary = {}
+            for _, enemy in ipairs(Keb) do
+                if not enemy.boss then table.insert(ordinary, enemy) end
             end
-        else
-            for Gfb = 1, Dfb - Cfb do
-                table.remove(Keb)
+            if # ordinary > 0 then
+                for index = 1, target - # Keb do
+                    table.insert(Keb, table.clone(ordinary[(index - 1) % # ordinary + 1]))
+                end
+            end
+        elseif target < # Keb then
+            for index = # Keb, 1, -1 do
+                if # Keb <= target then break end
+                if not Keb[index].boss then table.remove(Keb, index) end
             end
         end
     end
@@ -28072,6 +28306,26 @@ function Simulator.spotMask(lgb, mgb, ngb)
     return qgb
 end
 
+Units.FUSION = {
+    hero = "vegito",
+    upgrade = 7,
+    parents = { "goku_ssj3_evolved", "vegeta_majin_evolved" },
+    attacks = { goku_ssj3_evolved = "vegito_fusion", vegeta_majin_evolved = "vegito_fusion_vegeta" },
+}
+
+function Units.fusedForm(primary, partner)
+    local fused = table.clone(primary)
+    fused.unit_id = Units.FUSION.hero
+    fused.uuid = "fusion:" .. tostring(primary.uuid) .. ":" .. tostring(partner.uuid)
+    fused.traits = {}
+    for _, origin in ipairs({ primary, partner }) do
+        for _, trait in pairs(origin.traits or {}) do
+            table.insert(fused.traits, trait)
+        end
+    end
+    return fused
+end
+
 function Simulator.teamFrom(zgb, Agb)
     local Bgb = {
     }
@@ -28103,6 +28357,17 @@ function Simulator.sig(Igb)
     end
     table.sort(Jgb)
     return table.concat(Jgb, ",")
+end
+function Simulator.profileSig(units)
+    local members = {}
+    for _, unit in ipairs(units) do
+        local trait, tier = Units.trait(unit)
+        table.insert(members, string.format("%q:%q:%q:%q:%q:%q:%q",
+            tostring(unit.uuid), tostring(unit.unit_id), tostring(unit.xp), tostring(trait),
+            tostring(tier), tostring(unit._equipped_relic), tostring(unit.skin and unit.skin._skin_id)))
+    end
+    table.sort(members)
+    return table.concat(members, ",")
 end
 Simulator.WALK_STUDS = 1.9
 
@@ -28166,7 +28431,7 @@ function Simulator.run(Zgb, _gb, ahb)
         tostring(ahb and ahb.hpMul or 1)
     }
     for ehb, fhb in ipairs(_gb) do
-        dhb [# dhb + 1] = tostring(fhb.u and fhb.u.uuid) .. ":" .. tostring(fhb.id) .. ":" .. tostring(fhb.u and fhb.u.xp) .. ":" .. tostring(fhb.u and fhb.u._equipped_relic)
+        dhb[# dhb + 1] = Simulator.profileSig({fhb.u})
     end
     local ghb = table.concat(dhb, ",")
     local hhb = bhb [Zgb]
@@ -28502,7 +28767,9 @@ function Simulator.runRaw(jhb, khb, lhb)
             if akb.buff then
                 local bkb = Qjb(akb.buff)
                 for ckb, dkb in pairs(akb.buff.types) do
-                    if bkb then
+                    if akb.buff.chain then
+                        Njb[ckb] = math.max(Njb[ckb] or 0, Units.buffAverage(akb.buff, Xjb[akb.buff.attack], dkb, Config.actives and Config.community))
+                    elseif bkb then
                         Wjb [ckb] = math.min(bkb, (Wjb [ckb] or 0) + dkb * akb.buff.uptime)
                         Njb [ckb] = math.max(Njb [ckb] or 0, Wjb [ckb])
                     else
@@ -28802,6 +29069,55 @@ function Simulator.runRaw(jhb, khb, lhb)
             end
         end
     end
+    local fusionWave
+    local fusion = Units.FUSION
+    local heroData, heroRows = Core.Units[fusion.hero], Units.rows(fusion.hero)
+    local purchasing = khb
+    local involved = {}
+    if Config.actives ~= false and heroData and heroRows and not lhb.trial and not lhb.train then
+        for _, member in ipairs(khb) do
+            if fusion.attacks[member.id] then involved[member.id] = member end
+        end
+    end
+    local first, second = involved[fusion.parents[1]], involved[fusion.parents[2]]
+    local fusedEntry
+    if first and second and first.placeable and second.placeable and first.rows.max >= fusion.upgrade and second.rows.max >= fusion.upgrade then
+        local profileA = Units.fusedForm(first.u, second.u)
+        local profileB = Units.fusedForm(second.u, first.u)
+        local preferB = Units.dps(profileB, 0, jhb.mod) > Units.dps(profileA, 0, jhb.mod)
+        fusedEntry = {
+            id = fusion.hero, u = preferB and profileB or profileA, data = heroData,
+            rows = heroRows, farm = false, placeable = false,
+            cap = tonumber(heroData.spawn_cap) or 3,
+            origin = preferB and second or first,
+        }
+        purchasing = table.clone(khb)
+        table.insert(purchasing, fusedEntry)
+    end
+    local function fuseReadyParents()
+        if not fusedEntry then return end
+        local ready, heroes = {}, 0
+        for index, tower in ipairs(Ehb) do
+            if tower.e.id == fusion.hero then
+                heroes += 1
+            elseif fusion.attacks[tower.e.id] and tower.lvl >= fusion.upgrade then
+                ready[tower.e] = ready[tower.e] or index
+            end
+        end
+        if heroes >= fusedEntry.cap or not (ready[first] and ready[second]) then return end
+        local source = Ehb[ready[fusedEntry.origin]]
+        local spent = Ehb[ready[first]].spent + Ehb[ready[second]].spent
+        table.remove(Ehb, math.max(ready[first], ready[second]))
+        table.remove(Ehb, math.min(ready[first], ready[second]))
+        local tower = { e = fusedEntry, lvl = 0, spent = spent, lo = source.lo }
+        Gib(tower)
+        table.insert(Ehb, tower)
+        fusionWave = fusionWave or Ahb
+        if lhb.buys then
+            table.insert(lhb.buys, string.format("%.0fs w%d fuse Fused Hero", zhb, Ahb))
+        end
+    end
+
     local cmb, dmb, emb = 0, math.huge, false
     while zhb < 3600 do
         if not Ohb and Ahb > 0 and ((# Chb == 0 and # Dhb == 0) or (jhb.autoskip and zhb >= dmb)) then
@@ -29102,6 +29418,7 @@ function Simulator.runRaw(jhb, khb, lhb)
                 money = yhb,
                 tk = ohb,
                 left = qnb > 0 and pnb / qnb or 1,
+                fusionWave = fusionWave,
                 levels = vnb
             }
         end
@@ -29120,6 +29437,7 @@ function Simulator.runRaw(jhb, khb, lhb)
                 spentAt = Khb,
                 money = yhb,
                 tk = ohb,
+                fusionWave = fusionWave,
                 levels = ynb
             }
         end
@@ -29176,7 +29494,7 @@ function Simulator.runRaw(jhb, khb, lhb)
         for Xnb = 1, 3 do
             local Ynb, Znb, _nb, aob = {
             }, 0, 0, 0
-            for bob, cob in ipairs(khb) do
+            for bob, cob in ipairs(purchasing) do
                 local dob = {
                 }
                 local eob = lhb.trial and cob.id ~= lhb.trial and not cob.farm and (not Units.allyBuff(cob.id)) and Jnb < (lhb.trialAt or 0.6)
@@ -29268,10 +29586,21 @@ function Simulator.runRaw(jhb, khb, lhb)
                             end
                             zob = zob + Economy.shieldWork(xob.n, yob, Aob, dib, Fjb, jhb.waveSec, Zhb * gib, Ejb, xob.hits)
                         end
+                        local supportGain = 0
+                        if nob and Config.actives then
+                            for _, tower in ipairs(Ehb) do
+                                local base = nob.types[tower.base]
+                                if base and not tower.buff then
+                                    local after = Units.buffAverage(nob, #dob + 1, base, Config.community)
+                                    local before = Units.buffAverage(nob, #dob, base, Config.community)
+                                    supportGain += tower.dps * math.max(0, after - before)
+                                end
+                            end
+                        end
                         table.insert(Ynb, {
                             place = true,
                             cost = tob,
-                            gain = zob * vob + Gkb(cob) + zkb(cob) + blb(cob,
+                            gain = supportGain + zob * vob + Gkb(cob) + zkb(cob) + blb(cob,
                             xob) + Mnb(cob,
                             0,
                             true),
@@ -29380,6 +29709,7 @@ function Simulator.runRaw(jhb, khb, lhb)
                     table.insert(lhb.buys, string.format("%.0fs w%d up %s L%d", zhb, Ahb, Units.name(Lob.c.e.id), Lob.c.lvl))
                 end
             end
+            fuseReadyParents()
             Tjb()
             Cnb = 0
             for Tob, Uob in ipairs(Ehb) do
@@ -29403,6 +29733,7 @@ function Simulator.runRaw(jhb, khb, lhb)
         dpsAt = Jhb,
         spentAt = Khb,
         money = yhb,
+        fusionWave = fusionWave,
         timeout = true,
         tk = ohb
     }
@@ -29418,6 +29749,7 @@ function Simulator.evaluate(Vob, Wob)
         wave = Xob.wave,
         minutes = Xob.t / 60,
         aliveAt = Xob.aliveAt,
+        fusionWave = Xob.fusionWave,
         total = Vob.total,
         at = os.time()
     }
@@ -29452,14 +29784,12 @@ end
 function Simulator.trust(bpb, cpb)
     local dpb = bpb.cal or {
     }
-    if type(dpb.alive) ~= "table" or dpb.teamSig ~= Simulator.sig((function()
-        local epb = {
-        }
-        for fpb, gpb in ipairs(cpb) do
-            table.insert(epb, gpb.u)
-        end
-        return epb
-    end)()) then
+    if type(dpb.alive) ~= "table" or not dpb.teamProfile then
+        return nil
+    end
+    local units = {}
+    for _, entry in ipairs(cpb) do table.insert(units, entry.u) end
+    if dpb.teamProfile ~= Simulator.profileSig(units) then
         return nil
     end
     if bpb.key == "ch" and not dpb.aliveLvl then
@@ -29475,16 +29805,16 @@ function Simulator.trust(bpb, cpb)
     for lpb = 3, math.min(hpb.wave, tonumber(dpb.lastWave) or 99) do
         local mpb = tonumber(dpb.alive [tostring(lpb)])
         local npb = hpb.aliveAt [lpb]
-        if mpb and npb and mpb > 0 then
+        if mpb and npb and (mpb > 0 or npb > 0) then
             ipb = ipb + mpb
             jpb = jpb + npb
             kpb = kpb + 1
         end
     end
-    if kpb < 2 or jpb <= 0 then
+    if kpb < 2 then
         return nil
     end
-    local opb = ipb / jpb
+    local opb = jpb > 0 and ipb / jpb or 1000000
     return {
         ratio = opb,
         ok = opb >= 0.75 and opb <= 1.33,
@@ -29516,22 +29846,24 @@ function Simulator.pool(xpb, ypb)
     }, {
     }
     local Cpb = Simulator.grownKinds() >= Simulator.GROWN_MIN
+    local fusionParents = {}
     for Dpb, Epb in pairs(zpb.profile_data.collection.owned_units) do
         local Fpb = zpb.collection:get_unit_by_uuid(Epb.uuid) or Epb
         local Gpb, Hpb = pcall(Core.USC.calculate_level, Fpb.unit_id, tonumber(Fpb.xp) or 0)
         local Ipb = Units.isFarm(Fpb.unit_id) or not Cpb or (Gpb and (tonumber(Hpb) or 0) >= Simulator.GROWN_LEVEL)
-        if Core.Units [Fpb.unit_id] and Units.rows(Fpb.unit_id) and not Units.hidden(Fpb.unit_id) and Ipb then
+        local fusionParent = Units.FUSION.attacks[Fpb.unit_id]
+        if Core.Units [Fpb.unit_id] and Units.rows(Fpb.unit_id) and not Units.hidden(Fpb.unit_id) and (Ipb or fusionParent) then
             local Jpb = Units.isFarm(Fpb.unit_id)
             local Kpb, Lpb = pcall(Jpb and function()
                 return Units.farm(Fpb, Units.rows(Fpb.unit_id).max)
             end or Units.score, Fpb, xpb)
             Lpb = (Kpb and Lpb or 0) * (Jpb and 1 or Units.skinMul(Fpb, ypb and ypb.skinSet))
             local Mpb = Jpb and Bpb or Apb
-            if not Mpb [Fpb.unit_id] or Lpb > Mpb [Fpb.unit_id].sc then
-                Mpb [Fpb.unit_id] = {
-                    u = Fpb,
-                    sc = Lpb
-                }
+            if fusionParent and (not fusionParents[Fpb.unit_id] or Lpb > fusionParents[Fpb.unit_id].sc) then
+                fusionParents[Fpb.unit_id] = { u = Fpb, sc = Lpb }
+            end
+            if Ipb and (not Mpb [Fpb.unit_id] or Lpb > Mpb [Fpb.unit_id].sc) then
+                Mpb [Fpb.unit_id] = { u = Fpb, sc = Lpb }
             end
         end
     end
@@ -29636,6 +29968,7 @@ function Simulator.pool(xpb, ypb)
     end
     Aqb.rest = {
     }
+    Aqb.fusionParents = fusionParents
     for Dqb, Eqb in ipairs(Npb) do
         if not zqb [Eqb.u] then
             table.insert(Aqb.rest, Eqb.u)
@@ -29782,21 +30115,52 @@ function Simulator.strength(prb, qrb)
     return srb, trb, urb, vrb
 end
 
+function Simulator.fusionLineup(level, team, pool)
+    if not Config.actives then return nil, "Auto Abilities is off." end
+    local fusion = Units.FUSION
+    if not Units.rows(fusion.hero) then return nil, "Fused Hero stats are unavailable." end
+    local lineup, used = {}, {}
+    for _, id in ipairs(fusion.parents) do
+        local candidate = pool.fusionParents and pool.fusionParents[id]
+        local unit = candidate and candidate.u
+        if not unit then
+            for _, equipped in ipairs(team) do
+                if equipped.unit_id == id then unit = equipped break end
+            end
+        end
+        local rows = unit and Units.rows(id)
+        if not rows or rows.max < fusion.upgrade then
+            return nil, "Missing usable " .. Units.name(id) .. " with upgrade 7 data."
+        end
+        table.insert(lineup, unit)
+        used[id] = true
+    end
+    local entries = Simulator.teamFrom(lineup, level.map)
+    if #entries < 2 or not entries[1].placeable or not entries[2].placeable then
+        return nil, "The map cannot place both Fusion units."
+    end
+
+    local others = table.clone(team)
+    table.sort(others, function(a, b)
+        local farmA, farmB = Units.isFarm(a.unit_id), Units.isFarm(b.unit_id)
+        if farmA ~= farmB then return farmA end
+        return Units.score(a, level.mod) > Units.score(b, level.mod)
+    end)
+    for _, unit in ipairs(others) do
+        if #lineup >= 6 then break end
+        if not used[unit.unit_id] then
+            table.insert(lineup, unit)
+            used[unit.unit_id] = true
+        end
+    end
+    return lineup
+end
+
 function Simulator.bestTeam(Drb, Erb, Frb, Grb)
     local Hrb = Utils.now()
     Grb = Grb or 25
     local Irb = table.clone(Erb)
     local Jrb, Krb = Simulator.cliff(Drb, Simulator.teamFrom(Irb, Drb.map))
-    local function Lrb(Mrb)
-        local Nrb = 0
-        for Orb, Prb in ipairs(Mrb) do
-            if Units.isFarm(Prb.unit_id) then
-                Nrb = Nrb + 1
-            end
-        end
-        return Nrb
-    end
-    local Qrb = Lrb(Frb) > 0
     local function Rrb(Srb)
         local Trb = 0
         for Urb, Vrb in ipairs(Srb) do
@@ -29809,7 +30173,6 @@ function Simulator.bestTeam(Drb, Erb, Frb, Grb)
     local Wrb
     while # Irb < 6 do
         local Xrb, Yrb
-        local Zrb = Qrb and Lrb(Irb) == 0
         for _rb, asb in ipairs(Frb) do
             local bsb = false
             for csb, dsb in ipairs(Irb) do
@@ -29817,7 +30180,7 @@ function Simulator.bestTeam(Drb, Erb, Frb, Grb)
                     bsb = true
                 end
             end
-            if not bsb and (not Zrb or Units.isFarm(asb.unit_id)) then
+            if not bsb then
                 local esb = table.clone(Irb)
                 table.insert(esb, asb)
                 local fsb = Simulator.run(Drb, Simulator.teamFrom(esb, Drb.map), {
@@ -29834,27 +30197,6 @@ function Simulator.bestTeam(Drb, Erb, Frb, Grb)
         end
         table.insert(Irb, Xrb)
     end
-    if Qrb and Lrb(Irb) == 0 then
-        local hsb, isb
-        for jsb = 1, # Irb do
-            for ksb, lsb in ipairs(Frb) do
-                if Units.isFarm(lsb.unit_id) then
-                    local msb = table.clone(Irb)
-                    msb [jsb] = lsb
-                    local nsb = Simulator.run(Drb, Simulator.teamFrom(msb, Drb.map), {
-                        hpMul = Jrb
-                    })
-                    local osb = Simulator.objective(nsb)
-                    if not isb or osb > isb then
-                        hsb, isb, Wrb = msb, osb, nsb
-                    end
-                end
-            end
-        end
-        if hsb then
-            Irb = hsb
-        end
-    end
     local function psb(qsb, rsb)
         local ssb = Simulator.teamFrom(qsb, Drb.map)
         return (Simulator.objective(rsb) + Simulator.objective(Simulator.run(Drb, ssb, {
@@ -29864,6 +30206,21 @@ function Simulator.bestTeam(Drb, Erb, Frb, Grb)
         }))) / 3
     end
     local tsb, usb = Wrb or Krb, psb(Irb, Wrb or Krb)
+    local fusionTeam = Simulator.fusionLineup(Drb, Irb, Frb)
+    if fusionTeam then
+        local tested = Simulator.teamFrom(fusionTeam, Drb.map)
+        local normal = Simulator.run(Drb, tested, { hpMul = 1 })
+        if normal.fusionWave then
+            local result = Jrb == 1 and normal or Simulator.run(Drb, tested, { hpMul = Jrb })
+            local score = psb(fusionTeam, result)
+            if score > usb then
+                Irb, tsb, usb = fusionTeam, result, score
+            end
+            App.log(1, "SIM", string.format("Fusion comparison: Fused Hero at wave %d on normal enemy HP", normal.fusionWave))
+        else
+            App.log(1, "SIM", string.format("Fusion comparison: the pair did not fuse by wave %d", normal.wave or 0))
+        end
+    end
     if type(Frb.rest) == "table" and # Frb.rest > 0 then
         local vsb, wsb
         for xsb, ysb in ipairs(Irb) do
@@ -29921,14 +30278,15 @@ function Simulator.bestTeam(Drb, Erb, Frb, Grb)
                 end
                 local Rsb = false
                 for Ssb, Tsb in ipairs(Irb) do
-                    if Tsb.unit_id == Qsb.unit_id then
+                    if Ssb ~= Osb and Tsb.unit_id == Qsb.unit_id then
                         Rsb = true
+                        break
                     end
                 end
-                if not Rsb then
+                if not Rsb and Qsb.uuid ~= Irb[Osb].uuid then
                     local Usb = table.clone(Irb)
                     Usb [Osb] = Qsb
-                    if (not Qrb or Lrb(Usb) > 0) and Rrb(Usb) >= math.min(8, Rrb(Irb)) then
+                    if Rrb(Usb) >= math.min(8, Rrb(Irb)) then
                         local Vsb = Simulator.run(Drb, Simulator.teamFrom(Usb, Drb.map), {
                             hpMul = Jrb
                         })
@@ -30018,9 +30376,16 @@ function Simulator.evolutions()
 end
 
 function Simulator.levelFor(rtb)
-    local stb = Brain.simCal [rtb.key]
-    if rtb.kind == "daily" and Brain.live.daily and Brain.live.daily.ld then
-        return Brain.live.daily.ld, Brain.live.daily.challenge
+    local stb = Brain.simCal[rtb.key]
+    if rtb.kind == "daily" then
+        local live = Brain.live.daily
+        if not live or Modes.rotation(rtb) ~= tostring(live.uuid) then return nil end
+        if live.ld then return live.ld, live.challenge end
+        local calibration = Brain.simCal[Simulator.calKey("dc", {}, nil, live.uuid)]
+        return calibration and calibration.ld, live.challenge
+    end
+    if rtb.kind == "challenge" then
+        stb = Brain.simCal[Simulator.calKey("ch", {id = rtb.level}, rtb.challenge)]
     end
     if Hunt.is(rtb.level) and Brain.live.event and Brain.live.event.ld then
         return Brain.live.event.ld, nil
@@ -30044,6 +30409,29 @@ function Simulator.levelFor(rtb)
     end
 end
 
+function Simulator.testNamekFusion()
+    if App.where ~= "lobby" then return "Run the Fusion forecast in the lobby." end
+    local session = Core.session()
+    if not (session and session.profile_data and session.collection) then
+        return "Game profile is still loading."
+    end
+    local mode = { key = "inf:namek_infinite", kind = "infinite", level = "namek_infinite", diff = "Hard" }
+    local ld, challenge = Simulator.levelFor(mode)
+    if not ld then return "Namek Infinite data is unavailable." end
+    local mod = Modes.levelMod(mode.level)
+    local level = Simulator.info(ld, mode.key, challenge, mod)
+    local equipped = {}
+    for _, unit in ipairs(Units.equipped()) do table.insert(equipped, unit.u) end
+    local lineup, reason = Simulator.fusionLineup(level, equipped, Simulator.pool(mod, level))
+    if not lineup then return reason end
+
+    local result = Simulator.run(level, Simulator.teamFrom(lineup, level.map), { hpMul = 1 })
+    local baseline = Simulator.run(level, Simulator.teamFrom(equipped, level.map), { hpMul = 1 })
+    return string.format("Namek Infinite · current team reaches wave %d · Fusion team reaches wave %d · %s",
+        baseline.wave or 0, result.wave or 0,
+        result.fusionWave and ("Fused Hero at wave " .. tostring(result.fusionWave)) or "no fusion before the run ended")
+end
+
 function Simulator.plan(wtb, xtb, ytb, ztb)
     local Atb, Btb = Simulator.levelFor(wtb)
     if wtb.ldOverride then
@@ -30053,7 +30441,8 @@ function Simulator.plan(wtb, xtb, ytb, ztb)
         return nil
     end
     local Ctb = wtb.mod or (wtb.kind == "daily" and Brain.live.daily and Brain.live.daily.mod) or Modes.levelMod(wtb.level)
-    local Dtb = Simulator.info(Atb, wtb.key, Btb, Ctb)
+    local rotation = Modes.rotation(wtb)
+    local Dtb = Simulator.info(Atb, wtb.key, Btb, Ctb, rotation)
     local Etb = ztb
     if not Etb then
         Etb = {
@@ -30062,6 +30451,7 @@ function Simulator.plan(wtb, xtb, ytb, ztb)
             table.insert(Etb, Gtb.u)
         end
     end
+    local profile = Simulator.profileSig(Etb)
     local Htb = Simulator.teamFrom(Etb, Dtb.map)
     local Itb = Simulator.evaluate(Dtb, Htb)
     local Jtb, Ktb = pcall(Simulator.zoneChoice, Dtb, Htb, Itb.p >= 0.92 and 1.7 or Itb.p >= 0.7 and 1.3 or 1, false)
@@ -30071,7 +30461,11 @@ function Simulator.plan(wtb, xtb, ytb, ztb)
         Itb.zone = true
         Itb.margin = Itb.margin .. " with the kill box"
     end
+    if Itb.fusionWave then
+        Itb.margin = Itb.margin .. " · Fused Hero at wave " .. tostring(Itb.fusionWave)
+    end
     Itb.sig = Simulator.sig(Etb)
+    Itb.profile, Itb.rotation = profile, rotation
     Itb.trust = Simulator.trust(Dtb, Htb)
     Itb.label = wtb.label
     Itb.calibrated = (tonumber(Dtb.cal.n) or 0) > 0
@@ -30079,7 +30473,10 @@ function Simulator.plan(wtb, xtb, ytb, ztb)
     Itb.aliveAt = nil
     App.log(1, "SIM", string.format("%s: your team %s (%s, %s)", wtb.label, Itb.margin, Itb.calibrated and "calibrated on real runs" or "not calibrated yet", Itb.trust and string.format("real/sim HP %.2f", Itb.trust.ratio) or "no same-team run to compare"))
     local Ltb = Modes.rec(wtb.key)
-    if Config.simTeams and xtb and type(Ltb.winTeam) == "table" and # Ltb.winTeam > 0 then
+    local savedWinner = Ltb.winTeam
+    local sameRotation = (wtb.key ~= "ch" and wtb.key ~= "dc") or (rotation and Ltb.winRotation == rotation)
+    if Config.simTeams and xtb and sameRotation and Modes.provenWinner(wtb, Ltb.winProfile)
+        and type(savedWinner) == "table" and # savedWinner > 0 then
         local Mtb = Core.session()
         local Ntb = {
         }
@@ -30089,14 +30486,14 @@ function Simulator.plan(wtb, xtb, ytb, ztb)
                 table.insert(Ntb, Qtb)
             end
         end
-        if # Ntb == # Ltb.winTeam then
+        if # Ntb == # savedWinner and Simulator.profileSig(Ntb) == Ltb.winProfile then
             local Rtb = Simulator.teamFrom(Ntb, Dtb.map)
             local Stb = Simulator.run(Dtb, Rtb, {
                 hpMul = 1
             })
             local Ttb = Simulator.trust(Dtb, Rtb)
             local Utb = Ttb and not Ttb.ok
-            if not Stb.won or Utb then
+            if not Itb.won or (Itb.trust and not Itb.trust.ok) then
                 local Vtb, Wtb = {
                 }, {
                 }
@@ -30110,7 +30507,11 @@ function Simulator.plan(wtb, xtb, ytb, ztb)
                     ids = Wtb,
                     won = true,
                     wave = Dtb.total,
-                    better = Simulator.sig(Ntb) ~= Itb.sig,
+                    better = Ltb.winProfile ~= profile,
+                    profile = profile,
+                    targetProfile = Ltb.winProfile,
+                    rotation = rotation,
+                    prediction = { p = 0.7, wave = Dtb.total, won = true, margin = "won this match with the same team" },
                     cur = {
                         won = Itb.won,
                         wave = Itb.wave
@@ -30120,7 +30521,7 @@ function Simulator.plan(wtb, xtb, ytb, ztb)
                     base = Itb.sig,
                     why = "the team that won here last run, no search"
                 }
-                App.log(1, "SIM", string.format("%s: the team that won here last run plays again (%s): %s, and real runs won %d in a row", wtb.label, table.concat(Vtb, ", "), Utb and string.format((Ttb.ratio or 0) < 0.1 and "the simulator is off ×%.2f against real runs here" or "the simulator is off ×%.1f against real runs here", Ttb.ratio or 0) or string.format("the simulator calls it a loss at wave %d", Stb.wave), Ltb.winTeamN or 1))
+                App.log(1, "SIM", string.format("%s: the team that won here last run plays again (%s): %s, and real runs won %d in a row", wtb.label, table.concat(Vtb, ", "), Utb and string.format((Ttb.ratio or 0) < 0.1 and "the simulator is off ×%.2f against real runs here" or "the simulator is off ×%.1f against real runs here", Ttb.ratio or 0) or (Stb.won and "the simulator also predicts a win" or string.format("the simulator calls it a loss at wave %d", Stb.wave)), Ltb.winTeamN or 1))
                 return Itb
             end
         end
@@ -30128,7 +30529,7 @@ function Simulator.plan(wtb, xtb, ytb, ztb)
     if Config.simTeams and xtb then
         local Ztb, _tb, aub, bub, cub = pcall(Simulator.bestTeam, Dtb, Etb, Simulator.pool(Ctb, Dtb), ytb)
         if Ztb and _tb then
-            local dub = Simulator.sig(_tb) ~= Itb.sig
+            local dub = Simulator.profileSig(_tb) ~= profile
             if dub and Itb.won and (Itb.p or 0) >= 0.92 then
                 local eub = {
                 }
@@ -30155,11 +30556,22 @@ function Simulator.plan(wtb, xtb, ytb, ztb)
                     _tb, dub = Etb, false
                 end
             end
-            local qub = Simulator.run(Dtb, Simulator.teamFrom(_tb, Dtb.map), {
-                hpMul = 1
-            })
+            local candidate = Simulator.teamFrom(_tb, Dtb.map)
+            local qub = Simulator.run(Dtb, candidate, { hpMul = 1 })
+            if dub and Itb.won and not qub.won then
+                _tb, dub = Etb, false
+                qub = { won = Itb.won, wave = Itb.wave }
+            end
+            local forecast
             if dub then
+                forecast = Simulator.evaluate(Dtb, candidate)
+                forecast.trust = Simulator.trust(Dtb, candidate)
+                forecast.calibrated = Itb.calibrated
+                forecast.aliveAt = nil
                 Itb.playing = qub.won and "the best team wins" or string.format("the best team reaches wave %d of %d", qub.wave, Dtb.total)
+                if qub.fusionWave then
+                    Itb.playing = Itb.playing .. " · Fused Hero at wave " .. tostring(qub.fusionWave)
+                end
             end
             local rub, tub = {
             }, {
@@ -30186,7 +30598,11 @@ function Simulator.plan(wtb, xtb, ytb, ztb)
                 },
                 at = os.time(),
                 label = wtb.label,
-                base = Itb.sig
+                base = Itb.sig,
+                profile = profile,
+                targetProfile = Simulator.profileSig(_tb),
+                rotation = rotation,
+                prediction = forecast
             }
             App.log(1, "SIM", string.format("%s: best team from your units %s (%s)%s", wtb.label, qub.won and "wins" or ("reaches wave " .. qub.wave), table.concat(tub, ", "), dub and (string.format(" · it plays · against enemies ×%.1f: %s at wave %d, yours %s at wave %d", bub, aub.won and "wins" or "falls", aub.wave, cub.won and "wins" or "falls", cub.wave) .. hub) or " · the same as yours"))
             local zub = {
@@ -32120,6 +32536,7 @@ function Match.progressAt(hFb)
 end
 
 function Match.scan()
+    local allies = {}
     local pFb, qFb = {
     }, {
     }
@@ -32134,13 +32551,17 @@ function Match.scan()
                 local yFb = xFb and xFb:FindFirstChild("_stats")
                 local zFb = Core.Units [vFb.id.Value]
                 local AFb = xFb ~= nil and zFb ~= nil and (tonumber(zFb.cost) or 0) >= 100 and (not yFb or (yFb:FindFirstChild("id") and yFb.id.Value == vFb.id.Value))
-                if vFb.id.Value == "mahoraga" then
+                if vFb.id.Value == "mahoraga" or vFb.id.Value == Units.FUSION.hero then
                     AFb = true
                 end
                 local BFb = (xFb ~= nil and not AFb) or not vFb:FindFirstChild("attack_cooldown") or not vFb:FindFirstChild("upgrade") or not vFb:FindFirstChild("range")
                 if vFb.player.Value == LocalPlayer then
                     if not BFb then
                         table.insert(qFb, uFb)
+                    end
+                elseif vFb.player.Value ~= nil and not xFb and not BFb and zFb then
+                    if not Units.isFarm(vFb.id.Value) and not Units.allyBuff(vFb.id.Value) then
+                        table.insert(allies, uFb)
                     end
                 elseif vFb.player.Value == nil and uFb:FindFirstChild("HumanoidRootPart") then
                     local CFb, DFb, EFb = Match.progressAt(uFb.HumanoidRootPart.Position)
@@ -32168,7 +32589,7 @@ function Match.scan()
             end
         end
     end
-    Match.enemies, Match.mine = pFb, qFb
+    Match.enemies, Match.mine, Match.allies = pFb, qFb, allies
     if not Match.flyerSeen then
         for LFb, MFb in ipairs(pFb) do
             if MFb.fly then
@@ -33345,6 +33766,79 @@ function Match.holdSpot(wNb)
     return PNb, RNb or 0
 end
 
+function Match.teamOpeningSpot(unit)
+    if not Match.allies or #Match.allies == 0 or Match.wave() > 5 or Match.joinedMid then
+        return nil
+    end
+    if not Match.samples or not Match.cands or Units.allyBuff(unit.id) then
+        return nil
+    end
+    local defenders = 0
+    for _, model in ipairs(Match.mine) do
+        local id = model._stats.id.Value
+        if not Units.isFarm(id) and not Units.allyBuff(id) then
+            defenders += 1
+        end
+    end
+    if defenders >= 2 then return nil end
+
+    local anchors = {}
+    for _, model in ipairs(Match.allies) do
+        local hitbox = model:FindFirstChild("_hitbox")
+        local position = Utils.flat(hitbox and hitbox.Position or model:GetPivot().Position)
+        local radius = hitbox and math.max(hitbox.Size.X, hitbox.Size.Z) / 2 or 1.5
+        for _, sample in ipairs(Match.samples) do
+            if sample.prog <= Match.FAST_ROAD and (Utils.flat(sample.pos) - position).Magnitude <= model._stats.range.Value then
+                table.insert(anchors, {position = position, radius = radius})
+                break
+            end
+        end
+    end
+    if #anchors == 0 then return nil end
+
+    local range = Units.range(unit.u, 0) * ((Match.info and tonumber(Match.info.rangeScale)) or 1)
+    local clearance = (tonumber(unit.data.override_hitbox_radius) or 1.5) + 0.25
+    local opening = {}
+    for _, sample in ipairs(Match.samples) do
+        if sample.prog <= Match.FAST_ROAD then
+            table.insert(opening, Utils.flat(sample.pos))
+        end
+    end
+    local bestPosition, bestCoverage, bestScore, widestCoverage = nil, 0, 0, 0
+    for index, candidate in ipairs(Match.cands) do
+        local position = Match.valid(candidate, unit.data)
+        if position then
+            local flatPosition = Utils.flat(position)
+            local covered = 0
+            for _, point in ipairs(opening) do
+                if (point - flatPosition).Magnitude <= range then covered += 1 end
+            end
+            widestCoverage = math.max(widestCoverage, covered)
+            if covered > 0 then
+                local nearest = math.huge
+                for _, anchor in ipairs(anchors) do
+                    local distance = (flatPosition - anchor.position).Magnitude
+                    if distance < clearance + anchor.radius then
+                        nearest = math.huge
+                        break
+                    end
+                    nearest = math.min(nearest, distance)
+                end
+                if nearest <= 16 then
+                    local score = covered * (1 + (16 - nearest) / 80)
+                    if score > bestScore then
+                        bestPosition, bestCoverage, bestScore = position, covered, score
+                    end
+                end
+            end
+        end
+        if index % 40 == 0 then task.wait() end
+    end
+    if bestPosition and bestCoverage >= 0.75 * widestCoverage then
+        return bestPosition, Match.cover(bestPosition, range)
+    end
+end
+
 function Match.bestSpot(_Nb, aOb, bOb)
     if Match.focus and not aOb and not bOb and not Units.allyBuff(_Nb.id) then
         local cOb, dOb = Match.focusSpot(_Nb)
@@ -33363,6 +33857,10 @@ function Match.bestSpot(_Nb, aOb, bOb)
         end
     end
     local kOb = Match.depth and Match.depth.leak
+    if not aOb and not bOb and not kOb and not Match.focus and not Match.trialId and not Match.trainee then
+        local allySpot, coverage = Match.teamOpeningSpot(_Nb)
+        if allySpot then return allySpot, coverage, true end
+    end
     if Match.layout and Match.layout [_Nb.id] and not aOb and not bOb then
         local lOb = false
         for mOb, nOb in ipairs(Match.mine or {
@@ -33680,7 +34178,7 @@ end
 
 function Match.place(LQb, MQb)
     local NQb = Units.isFarm(LQb.id)
-    local OQb, PQb = Match.bestSpot(LQb, NQb or (Match.random and Units.idol(LQb.id)), (Match.trainee ~= nil and LQb.uuid == Match.trainee) or Units.ENTRY [LQb.id] == true or (Match.studyEntry == true and LQb.id == Match.trialId))
+    local OQb, PQb, teamOpening = Match.bestSpot(LQb, NQb or (Match.random and Units.idol(LQb.id)), (Match.trainee ~= nil and LQb.uuid == Match.trainee) or Units.ENTRY [LQb.id] == true or (Match.studyEntry == true and LQb.id == Match.trialId))
     if not OQb then
         Match.noSpot [LQb.uuid] = (Match.noSpot [LQb.uuid] or 0) + 1
         App.status("Placement", "no free spot for " .. Units.name(LQb.id))
@@ -33689,6 +34187,7 @@ function Match.place(LQb, MQb)
     local QQb = Match.money()
     local RQb, SQb = App.request("place", "spawn_unit", LQb.uuid, Core.Util.CFramePLV(OQb, Match.lookAt(OQb)))
     if RQb and SQb then
+        if teamOpening then MQb = tostring(MQb) .. " · near allies at the road entrance" end
         Match.spent = Match.spent + (LQb.data.cost or 0)
         table.insert(Match.actions, string.format("placed %s", Units.name(LQb.id)))
         App.log(1, "PLACE", string.format("%s at %s (covers %d road samples) — %s", Units.name(LQb.id), Match.spotKey(OQb), PQb, MQb))
@@ -34217,7 +34716,7 @@ function Match.calMerge(XTb)
     if not (YTb and Match.key) then
         return
     end
-    local ZTb = Simulator.cal(Match.key)
+    local ZTb = Simulator.cal(Simulator.calKey(Match.key, Match.ld, Match.challenge, Match.rotation))
     ZTb.n = (tonumber(ZTb.n) or 0) + 1
     local _Tb = math.max(0.2, 1 / ZTb.n)
     local function aUb(bUb)
@@ -34345,10 +34844,12 @@ function Match.calMerge(XTb)
         end
         local QUb = Simulator.sig(NUb)
         local RUb = tostring(Match.ld.id or "?") .. (Hunt.is(Match.ld.id) and ("@" .. tostring(Match.ld.map)) or "")
-        if ZTb.teamSig ~= QUb or ZTb.aliveLvl ~= RUb then
+        local teamProfile = Match.teamProfile or Simulator.profileSig(NUb)
+        if ZTb.teamProfile ~= teamProfile or ZTb.aliveLvl ~= RUb then
             ZTb.alive = {
             }
             ZTb.teamSig = QUb
+            ZTb.teamProfile = teamProfile
             ZTb.aliveLvl = RUb
             ZTb.aliveN = 0
             ZTb.lastWave = 0
@@ -34372,8 +34873,8 @@ function Match.calMerge(XTb)
         end
     end
     ZTb.ld = Simulator.slim(Match.ld)
-    ZTb.ch = Match.ld._challenge
-    Brain.simRes [Match.key] = nil
+    ZTb.ch = Match.challenge or Match.ld._challenge
+    Brain.simRes[Match.key], Brain.simTeam[Match.key] = nil, nil
     Simulator._masks = {
     }
     if Match.pred and Match.infinite then
@@ -34429,7 +34930,7 @@ end
 
 function Match.buffGain(nVb)
     local oVb = Units.allyBuff(nVb.id)
-    if not oVb then
+    if not oVb or not Config.actives then
         return 0
     end
     local pVb = Match.buffShort(oVb)
@@ -34437,6 +34938,7 @@ function Match.buffGain(nVb)
     local rVb = qVb and qVb.stacks and (qVb.cap or 1) or nil
     local sVb, tVb = pcall(Units.range, nVb.u, 0)
     tVb = (sVb and tonumber(tVb) or 15) * ((Match.info and tonumber(Match.info.rangeScale)) or 1)
+    local allowChain = Config.actives and Config.community
     local uVb = rVb and Config.community and tonumber(oVb.time) and tonumber(oVb.cd)
     local function vVb(wVb, xVb)
         local yVb = math.floor(wVb * oVb.time / math.max(1, oVb.cd) + 0.001)
@@ -34449,7 +34951,9 @@ function Match.buffGain(nVb)
             if (EVb.pos - BVb.pos).Magnitude <= tVb then
                 local FVb = oVb.types [EVb.base]
                 local GVb = FVb * oVb.uptime
-                if uVb then
+                if oVb.chain then
+                    GVb = Units.buffAverage(oVb, EVb.n + 1, FVb, allowChain) - Units.buffAverage(oVb, EVb.n, FVb, allowChain)
+                elseif uVb then
                     local HVb, IVb = vVb(EVb.n, FVb), EVb.n + 1
                     while IVb < EVb.n + 6 and vVb(IVb, FVb) <= HVb + 0.001 do
                         IVb = IVb + 1
@@ -34742,6 +35246,28 @@ function Match.econ()
             end
         end
     end
+    local fusionRows = Units.rows(Units.FUSION.hero)
+    for _, tower in ipairs(Match.mine) do
+        local stats = tower._stats
+        if fusionRows and stats.id.Value == Units.FUSION.hero then
+            wWb = wWb + 1
+            local level = stats.upgrade.Value
+            local current, nextLevel = fusionRows[level], fusionRows[level + 1]
+            if current and nextLevel and not ((Match.upFail[tower] or 0) >= 3 and Utils.now() - (Match.upFailAt[tower] or 0) < 60) then
+                local ok, scale = pcall(Core.USC.calculate_upgrade_cost_multiplier, tower, Core.session())
+                local cost = nextLevel.cost * (ok and tonumber(scale) or 1)
+                local liveDps = Match.liveDps(tower, Units.FUSION.hero)
+                local estimate = liveDps * (nextLevel.damage / math.max(1, current.damage)) * (current.cd / math.max(0.1, nextLevel.cd))
+                table.insert(vWb, {
+                    cost = cost,
+                    gain = Economy.upgradeGain(liveDps, fusionRows, level, cost, cost / math.max(1, nextLevel.cost), estimate) * Match.reach(tower),
+                    m = tower,
+                    what = string.format("upgrade Fused Hero to level %d", level + 1),
+                })
+                yWb = yWb + cost
+            end
+        end
+    end
     if Match.random and FarmHub.every("summonCheck", 1) then
         Match.summonWait = false
         for gXb, hXb in pairs(Core.session().ingame_spells or {
@@ -34887,6 +35413,20 @@ function Match.econ()
         return
     end
     App.status("Economy", string.format("%s — %s", MXb.what, NXb))
+    if Match.namekTest and MXb.place and not MXb.farm then
+        local support = Units.allyBuff(MXb.e.id)
+        local rival = 0
+        for _, alternative in ipairs(vWb) do
+            if alternative.place and alternative.e and alternative.cost <= pWb and (Units.allyBuff(alternative.e.id) ~= nil) ~= (support ~= nil) and not alternative.farm then
+                rival = math.max(rival, (alternative.gain or 0) / math.max(1, alternative.cost) * 1000)
+            end
+        end
+        if rival > 0 then
+            Match.namekTest.comparisons += 1
+            if support then Match.namekTest.supportChoices += 1 end
+            Match.namekTest.lastChoice = string.format("%s (%.0f vs %.0f gain / ¥1k)", MXb.what, MXb.gain / math.max(1, MXb.cost) * 1000, rival)
+        end
+    end
     if MXb.place then
         Match.place(MXb.e, NXb)
     else
@@ -35134,12 +35674,94 @@ function Match.gale(UYb, VYb, WYb, XYb)
     return true, string.format("Gale on: %d enemies in range%s, bar %d (copies take turns)", hZb, jZb and ", a boss" or "", math.floor(gZb))
 end
 
+function Match.fusionReady(source)
+    local fusion = Units.FUSION
+    if Match.trialId or Match.trainee or Utils.now() < (Match.fusionRetryAt or 0) then return false end
+    local sourceStats = source._stats
+    if sourceStats.upgrade.Value < fusion.upgrade then return false end
+    local partners, heroCount = false, 0
+    for _, unit in ipairs(Match.mine) do
+        local stats = unit._stats
+        local id = stats.id.Value
+        if id == fusion.hero then
+            heroCount += 1
+        elseif id ~= sourceStats.id.Value and fusion.attacks[id] and stats.upgrade.Value >= fusion.upgrade then
+            local attack = stats:FindFirstChild("active_attack")
+            partners = partners or (attack and attack.Value == fusion.attacks[id])
+        end
+    end
+    return partners and heroCount < (tonumber(Units.field(fusion.hero, "spawn_cap")) or 3)
+end
+
+function Match.relayBuffChoice(now, clock)
+    if not Config.community or #Match.enemies == 0 then return nil end
+    local support, fighters = {}, {}
+    for _, tower in ipairs(Match.mine) do
+        local stats = tower._stats
+        local id = stats.id.Value
+        local buff = Units.allyBuff(id)
+        local position = Utils.flat(tower:GetPivot().Position)
+        if buff and buff.chain then
+            local active = stats:FindFirstChild("active_attack")
+            local last = stats:FindFirstChild("last_active_cast")
+            local cd = stats:FindFirstChild("active_attack_cooldown")
+            if active and active.Value == buff.attack and last and cd then
+                table.insert(support, {
+                    model = tower, stats = stats, buff = buff, position = position,
+                    ready = clock - last.Value >= cd.Value,
+                    range = stats.range.Value,
+                })
+            end
+        elseif not buff and not Units.isFarm(id) then
+            local _, base = Units.types(id)
+            table.insert(fighters, { stats = stats, position = position, base = base, dps = Match.liveDps(tower, id) })
+        end
+    end
+    Match.relayNext = Match.relayNext or {}
+    local best, bestScore
+    for _, caster in ipairs(support) do
+        local buff = caster.buff
+        if caster.ready and now >= (Match.relayNext[buff.attack] or 0) then
+            local delivery, reachable, strongest = 0, 0, 0
+            for _, fighter in ipairs(fighters) do
+                local base = buff.types[fighter.base]
+                if base and (fighter.position - caster.position).Magnitude <= caster.range then
+                    local attribute = "_dmg_buff_" .. fighter.base
+                    local strength = tonumber(caster.stats:GetAttribute(attribute)) or 0
+                    local target = math.min(1, (1 + base) * (1 + strength) - 1)
+                    local old = tonumber(fighter.stats:GetAttribute(attribute)) or 0
+                    reachable += fighter.dps
+                    strongest = math.max(strongest, target)
+                    if old <= 0.02 then delivery += fighter.dps * target end
+                end
+            end
+            local relay = 0
+            if reachable > 0 then
+                for _, recipient in ipairs(support) do
+                    if recipient ~= caster and recipient.buff.attack == buff.attack and (recipient.position - caster.position).Magnitude <= caster.range then
+                        for base in pairs(buff.types) do
+                            local attribute = "_dmg_buff_" .. base
+                            local old = tonumber(recipient.stats:GetAttribute(attribute)) or 0
+                            if old <= 0.02 and strongest > 0 then relay += reachable * strongest * 0.16 end
+                            break
+                        end
+                    end
+                end
+            end
+            local score = delivery + relay
+            if score > (bestScore or 0) then best, bestScore = caster, score end
+        end
+    end
+    return best and best.model
+end
+
 function Match.actives()
     if not Config.actives or Match.activeBusy then
         return
     end
     local wZb = tick()
     local xZb = Utils.now()
+    local relayCaster = Match.relayBuffChoice(xZb, wZb)
     for yZb, zZb in ipairs(Match.mine) do
         local AZb = zZb._stats
         local BZb, CZb, DZb = AZb:FindFirstChild("active_attack"), AZb:FindFirstChild("active_attack_cooldown"), AZb:FindFirstChild("last_active_cast")
@@ -35156,10 +35778,18 @@ function Match.actives()
                 local GZb = AZb.range.Value
                 local HZb, IZb, JZb
                 local KZb = Match.trialId == AZb.id.Value and Brain.trial and Brain.trial.study and # Match.enemies > 0 and not Match.isGale(AZb, tostring(BZb.Value))
-                if KZb then
+                if Units.FUSION.attacks[AZb.id.Value] == BZb.Value then
+                    HZb, IZb = Match.fusionReady(zZb), "Fusion: both partners reached upgrade 7"
+                elseif KZb then
                     HZb, IZb = true, "on study: what it does"
                 elseif Match.isGale(AZb, tostring(BZb.Value)) then
                     HZb, IZb = Match.gale(zZb, AZb, tostring(BZb.Value), xZb)
+                elseif EZb.ally and Config.community and (function()
+                    local buff = Units.allyBuff(AZb.id.Value)
+                    return buff and buff.chain
+                end)() then
+                    HZb, IZb = relayCaster == zZb, "buff relay: sustain the strongest available buff"
+                    if HZb then Match.relayNext[BZb.Value] = xZb + 3 end
                 elseif EZb.ally and Brain.stack [BZb.Value] and Brain.stack [BZb.Value].stacks and Config.community then
                     HZb, IZb = Match.buffRotation(zZb, AZb, tostring(BZb.Value), EZb, tonumber(EZb.ally.time) or 30, xZb)
                 elseif EZb.ally or EZb.allyCd or EZb.allyRange then
@@ -35253,6 +35883,9 @@ function Match.actives()
                 end
                 if HZb then
                     Match.activeBusy = true
+                    if Units.FUSION.attacks[AZb.id.Value] == BZb.Value then
+                        Match.fusionRetryAt = Utils.now() + 5
+                    end
                     Match.readySince [zZb] = nil
                     task.spawn(function()
                         local l_b = App.request("active", "use_active_attack", zZb)
@@ -37486,27 +38119,97 @@ function Match.trainDone(Rcc, Scc)
     end
 end
 
+function Match.sampleNamekTest()
+    local test = Match.namekTest
+    if not test then return end
+    local now = Utils.now()
+    local elapsed = test.lastSample and math.min(2, now - test.lastSample) or 0
+    test.lastSample = now
+    test.wave = Match.wave()
+    for _, tower in ipairs(Match.mine) do
+        local stats = tower._stats
+        local id = stats.id.Value
+        if id == Units.FUSION.hero then test.fusionWave = test.fusionWave or test.wave end
+        if not Units.isFarm(id) and not Units.allyBuff(id) then
+            local _, damageType = Units.types(id)
+            local amount = tonumber(stats:GetAttribute("_dmg_buff_" .. damageType)) or 0
+            test.peak = math.max(test.peak, amount)
+            test.observed += elapsed
+            if amount >= 0.99 then test.full += elapsed end
+        end
+    end
+end
+
+function GUI.namekTestText()
+    local test = Match.namekTest or Brain.namekTest
+    if not test then return "No test yet." end
+    if not test.wave then
+        return os.time() - test.armedAt <= 900 and "Armed. Enter Namek Infinite within 15 minutes." or "The test expired. Arm it again."
+    end
+    return string.format("%s · wave %d\nPeak buff +%d%% · +100%% uptime %.0f%%\nSupport chosen %d / %d compared buys\n%s\nFused Hero: %s",
+        test.finished and "Finished" or (Match.namekTest and "Running" or "Interrupted"), test.wave, math.floor(test.peak * 100 + 0.5),
+        100 * test.full / math.max(1, test.observed), test.supportChoices, test.comparisons,
+        test.lastChoice or "No support vs attacker purchase observed yet",
+        test.fusionWave and ("wave " .. tostring(test.fusionWave)) or "not observed")
+end
+
 function Match.finish()
     if Match.finished then
         return
     end
     Match.finished = true
+    if Match.namekTest then
+        Match.sampleNamekTest()
+        Match.namekTest.finished = true
+        Brain.namekTest = Match.namekTest
+        App.log(1, "TEST", GUI.namekTestText():gsub("\n", " · "))
+        App.saveNow()
+    end
     local Ycc
     local Zcc = Utils.now()
-    while Utils.now() - Zcc < 8 do
-        Ycc = Match.result or (Core.GUIS.results_ui and Core.GUIS.results_ui.settings)
-        if Ycc then
-            break
+    local function confirmed(result)
+        return type(result) == "table" and type(result.victory) == "boolean"
+    end
+    while App.alive and Utils.now() - Zcc < 8 do
+        local ui = Core.GUIS.results_ui
+        if confirmed(Match.result) then
+            Ycc = Match.result
+        elseif ui and confirmed(ui.settings) then
+            Ycc = ui.settings
         end
+        if Ycc then break end
         task.wait(0.25)
     end
-    local _cc = Ycc and Ycc.victory or false
+    if not Ycc then
+        App.log(1, "RESULT", "game finished without a confirmed result; no match stats recorded")
+        Brain.pending, Brain.startTeam = nil, nil
+        App.saveNow()
+        if App.alive and Config.master and Config.play then
+            App.request("lobby", "teleport_back_to_lobby")
+        end
+        return
+    end
+    local _cc = Ycc.victory
     local adc = Match.infinite and Match.wave() or nil
     if adc then
         _cc = true
     end
     local bdc = Match.key
     local cdc = Modes.rec(bdc)
+    local canLearn = not (Match.joinedMid or Match.stopping or Match.trialId or Match.random or Match.hadCompany)
+    local live = Modes.liveChallenge(bdc)
+    local sameRotation = live and Match.rotation and Match.rotation == tostring(live.uuid)
+    if sameRotation and not Match.joinedMid then
+        local record = cdc.rotationStats
+        if not record or record.rotation ~= Match.rotation then
+            record = { rotation = Match.rotation, runs = 0, wins = 0, sec = 0, timed = 0, streak = 0 }
+            cdc.rotationStats = record
+        end
+        record.runs = record.runs + 1
+        record.wins = record.wins + (_cc and 1 or 0)
+        record.streak = _cc and 0 or record.streak + 1
+        if canLearn then record.soloStreak = _cc and 0 or (record.soloStreak or 0) + 1 end
+    end
     if adc and not Match.joinedMid and not Match.stopping then
         cdc.waveSum, cdc.waveN = (tonumber(cdc.waveSum) or 0) + adc, (tonumber(cdc.waveN) or 0) + 1
         cdc.waveBest = math.max(tonumber(cdc.waveBest) or 0, adc)
@@ -37521,10 +38224,12 @@ function Match.finish()
         table.sort(ddc)
         App.log(1, "MATCH", "Infinite result fields: " .. table.concat(ddc, ", "))
     end
-    local gdc = Ycc and Ycc.stats and tonumber(Ycc.stats.time_taken) or (os.clock() - (Match.startClock or os.clock()))
-    local hdc = Ycc and ((tonumber(Ycc.gem_reward) or 0) + (tonumber(Ycc.first_completion_gems) or 0)) or 0
+    local stats = type(Ycc.stats) == "table" and Ycc.stats or {}
+    local resources = type(Ycc.resource_reward) == "table" and Ycc.resource_reward or {}
+    local gdc = math.max(0, tonumber(stats.time_taken) or (os.clock() - (Match.startClock or os.clock())))
+    local hdc = (tonumber(Ycc.gem_reward) or 0) + (tonumber(Ycc.first_completion_gems) or 0)
     local idc = Core.GS.CURRENT_EVENT_RESOURCE or "AprilCoins"
-    local jdc = Ycc and Ycc.resource_reward and tonumber(Ycc.resource_reward [idc]) or 0
+    local jdc = tonumber(resources[idc]) or 0
     if not Match.joinedMid then
         cdc.runs = cdc.runs + 1
         if _cc then
@@ -37537,17 +38242,16 @@ function Match.finish()
         end
         cdc.sec = cdc.sec + gdc
         cdc.timed = (tonumber(cdc.timed) or 0) + 1
+        if sameRotation then
+            cdc.rotationStats.sec = cdc.rotationStats.sec + gdc
+            cdc.rotationStats.timed = cdc.rotationStats.timed + 1
+        end
     end
     if _cc then
         if Match.ld._gamemode == "story" or Match.kind == "raid" then
             Brain.cleared [Match.ld.id .. ":" .. tostring(Match.ld._difficulty or "Normal")] = os.time()
         end
-        if bdc == "ch" and Brain.live.normal then
-            Brain.live.normal.doneUuid = Brain.live.normal.uuid
-        end
-        if bdc == "dc" and Brain.live.daily then
-            Brain.live.daily.doneUuid = Brain.live.daily.uuid
-        end
+        if sameRotation then live.doneUuid = live.uuid end
     end
     for kdc, ldc in pairs(Brain.cleared) do
         if os.time() - ldc > 86400 then
@@ -37557,16 +38261,15 @@ function Match.finish()
     cdc.gems = cdc.gems + hdc
     cdc.coins = cdc.coins + jdc
     cdc.last = os.time()
-    local mdc = (cdc.streak or 0) >= Config.restAfterLosses and Match.kind ~= "dungeon" and Match.kind ~= "portal" and not Match.trialId and not (Config.dailyLoop and bdc == "dc")
+    local lossStreak = live and (sameRotation and cdc.rotationStats and cdc.rotationStats.streak or 0) or (cdc.streak or 0)
+    local mdc = not Match.joinedMid and lossStreak >= Config.restAfterLosses and Match.kind ~= "dungeon" and Match.kind ~= "portal" and not Match.trialId and not (Config.dailyLoop and bdc == "dc")
     if mdc then
         cdc.restUntil, cdc.restWhy = os.time() + 6 * 3600, "losses"
-        App.log(1, "MODE", Match.label() .. ": lost " .. cdc.streak .. " in a row — resting it for 6 h")
+        cdc.restRotation = Match.rotation
+        App.log(1, "MODE", Match.label() .. ": lost " .. lossStreak .. " in a row — resting it for 6 h")
     end
-    if not _cc and (bdc == "ch" or bdc == "dc") then
-        local ndc = bdc == "ch" and Brain.live.normal or Brain.live.daily
-        if ndc then
-            ndc.lost = (ndc.lost or 0) + 1
-        end
+    if not _cc and sameRotation and not Match.joinedMid then
+        live.lost = (live.lost or 0) + 1
     end
     Brain.totals.matches = (Brain.totals.matches or 0) + 1
     if not Match.joinedMid then
@@ -37580,10 +38283,17 @@ function Match.finish()
     Brain.totals.coins = (Brain.totals.coins or 0) + jdc
     local odc = {
     }
-    for pdc, qdc in pairs(Ycc and Ycc.new_items or {
-    }) do
-        local rdc = type(qdc) == "table" and (qdc.item_id or qdc.id) or tostring(qdc)
-        odc [rdc] = (odc [rdc] or 0) + (type(qdc) == "table" and tonumber(qdc.amount) or 1)
+    for _, item in pairs(type(Ycc.new_items) == "table" and Ycc.new_items or {}) do
+        if type(item) == "table" then
+            local id = item.item_id or item.id
+            if type(id) == "string" or type(id) == "number" then
+                id = tostring(id)
+                odc[id] = (odc[id] or 0) + (tonumber(item.amount) or 1)
+            end
+        elseif type(item) == "string" or type(item) == "number" then
+            local id = tostring(item)
+            odc[id] = (odc[id] or 0) + 1
+        end
     end
     local sdc = Match.label()
     if Match.kind == "dungeon" and not Match.joinedMid then
@@ -37592,7 +38302,7 @@ function Match.finish()
             App.log(1, "ERROR", "dungeon: " .. tostring(udc))
         end
     end
-    if not Match.joinedMid and not Match.random and not Match.stopping and not Match.trialId then
+    if canLearn then
         pcall(Match.spotResult, _cc)
     end
     Brain.lastResult = {
@@ -37600,7 +38310,7 @@ function Match.finish()
         text = string.format("%s · %s · wave %s · %dm%02ds",
         sdc,
         _cc and "won" or "lost",
-        tostring(Ycc and Ycc.stats and Ycc.stats.waves_completed or Match.wave()),
+        tostring(stats.waves_completed or Match.wave()),
         math.floor(gdc / 60),
         math.floor(gdc % 60)),
         gems = hdc,
@@ -37626,8 +38336,9 @@ function Match.finish()
         refusals = Match.refusals or 0,
         at = os.time()
     }
-    if not Match.trialId then
-        pcall(Match.learn)
+    if canLearn and not Match.trainee then
+        local ok, err = pcall(Match.learn)
+        if not ok then App.log(1, "ERROR", "unit learning: " .. tostring(err)) end
     end
     local vdc, wdc = pcall(Match.trainDone, bdc, _cc)
     if not vdc then
@@ -37642,7 +38353,7 @@ function Match.finish()
     end
     if Match.random then
         pcall(Match.fhRecord, jdc, _cc)
-    elseif not Match.stopping and not Match.trialId then
+    elseif canLearn and not Match.trainee then
         xdc, ydc = pcall(Match.calMerge, _cc)
     end
     if not xdc then
@@ -37663,8 +38374,9 @@ function Match.finish()
         App.saveNow()
     end
     local Bdc = Brain.testTeam
-    local Cdc = Bdc and (Bdc.left or 0) > 0 and Bdc.key == bdc and type(Bdc.uuids) == "table" and Training.same(Training.team(), Bdc.uuids)
-    if Bdc and (Bdc.left or 0) > 0 and Bdc.key == bdc then
+    local Cdc = Bdc and (Bdc.left or 0) > 0 and Bdc.key == bdc and type(Bdc.uuids) == "table"
+        and Training.same(Match.teamUuids or {}, Bdc.uuids)
+    if Cdc and not (Match.joinedMid or Match.stopping) then
         Bdc.left = Bdc.left - 1
         Bdc.runs = Bdc.runs or {
         }
@@ -37674,50 +38386,32 @@ function Match.finish()
             wave = Match.wave(),
             sec = gdc,
             at = os.time(),
-            dmg = Ddc,
-            other = not Cdc or nil
+            dmg = Ddc
         })
-        App.log(1, "TEST", string.format("%s: run %d of %d %s at wave %d in %.1f min%s · %s", tostring(Bdc.label), # Bdc.runs, tonumber(Bdc.n) or # Bdc.runs, _cc and "WON" or "LOST", Match.wave(), (tonumber(gdc) or 0) / 60, Cdc and "" or " (the test team wasn't on: not counted)", Ddc))
+        App.log(1, "TEST", string.format("%s: run %d of %d %s at wave %d in %.1f min · %s", tostring(Bdc.label), # Bdc.runs, tonumber(Bdc.n) or # Bdc.runs, _cc and "WON" or "LOST", Match.wave(), gdc / 60, Ddc))
         if Bdc.left <= 0 then
             App.log(1, "TEST", tostring(Bdc.label) .. ": done, the usual team picking is back")
         end
         App.saveSoon()
     end
-    pcall(function()
-        if Cdc then
-            return
+    if canLearn and not Cdc and not Match.trainee and not adc and (not live or sameRotation) then
+        local uuids = table.clone(Match.teamUuids or {})
+        if # uuids > 0 then
+            table.sort(uuids)
+            local identity = table.concat(uuids, ",")
+            if _cc then
+                local sameTeam = cdc.winSig == identity and cdc.winProfile == Match.teamProfile
+                    and cdc.winRotation == Match.rotation
+                cdc.winTeamN = sameTeam and (tonumber(cdc.winTeamN) or 0) + 1 or 1
+                cdc.winTeam, cdc.winSig = uuids, identity
+                cdc.winProfile, cdc.winRotation = Match.teamProfile, Match.rotation
+            elseif cdc.winSig == identity and cdc.winRotation == Match.rotation
+                and (not cdc.winProfile or cdc.winProfile == Match.teamProfile) then
+                cdc.winTeam, cdc.winSig, cdc.winTeamN = nil, nil, nil
+                cdc.winProfile, cdc.winRotation = nil, nil
+            end
         end
-        local Edc = Modes.rec(bdc)
-        if _cc and not adc then
-            local Fdc = {
-            }
-            for Gdc, Hdc in ipairs(Units.equipped()) do
-                table.insert(Fdc, Hdc.uuid)
-            end
-            table.sort(Fdc)
-            local Idc = table.concat(Fdc, ",")
-            local function Jdc(Kdc)
-                local Ldc, Mdc = Core.session(), 0
-                for Ndc, Odc in ipairs(Kdc or {
-                }) do
-                    local Pdc = Ldc.collection:get_unit_by_uuid(Odc)
-                    local Qdc, Rdc = pcall(Units.score, Pdc or {
-                    })
-                    Mdc = Mdc + (Qdc and Rdc or 0)
-                end
-                return Mdc
-            end
-            if # Fdc > 0 then
-                if Edc.winSig == Idc then
-                    Edc.winTeamN = (tonumber(Edc.winTeamN) or 0) + 1
-                elseif not Edc.winTeam or Jdc(Fdc) >= Jdc(Edc.winTeam) then
-                    Edc.winTeam, Edc.winSig, Edc.winTeamN = Fdc, Idc, 1
-                end
-            end
-        elseif not _cc then
-            Edc.winTeam, Edc.winSig, Edc.winTeamN = nil, nil, nil
-        end
-    end)
+    end
     local Sdc, Tdc = pcall(Reports.match, {
         key = bdc,
         won = _cc,
@@ -37774,11 +38468,11 @@ function Match.finish()
     end
     if not Match.random then
         local jec, kec, lec = pcall(Match.damageShares)
-        if jec and kec and not Match.trialId then
+        if jec and kec and canLearn and not Match.trainee then
             pcall(Strategy.learn, kec, Match.team)
         end
         local mec, nec = pcall(Match.summonSplit)
-        if mec and nec and jec and (lec or 0) > 0 then
+        if canLearn and not Match.trainee and mec and nec and jec and (lec or 0) > 0 then
             Brain.str.summon = type(Brain.str.summon) == "table" and Brain.str.summon or {
             }
             for oec, pec in pairs(nec) do
@@ -37905,9 +38599,10 @@ function Match.finish()
     end
     if Match.kind == "dungeon" and Fec ~= "stay" and Bec and Bec.key == "dg" and _cc and # Units.equipped() >= 6 and not Brain.holdLobby and not Brain.buyStorage and not Pec then
         Brain.pending = nil
-        App.saveNow()
+        local saved = App.saveNow()
         App.status("Match", "next dungeon room")
-        local Sec, Tec = pcall(Dungeon.chain)
+        local Sec, Tec = true, false
+        if saved then Sec, Tec = pcall(Dungeon.chain) end
         if not Sec then
             App.log(1, "ERROR", "dungeon next room: " .. tostring(Tec))
         end
@@ -37923,6 +38618,7 @@ function Match.finish()
         level = Bec.level,
         diff = Bec.diff,
         label = Bec.label,
+        rotation = Modes.rotation(Bec),
         at = os.time()
     } or nil
     if Fec == "next_story" or Fec == "replay" then
@@ -37938,7 +38634,13 @@ function Match.finish()
             why = (Fec == "replay" and "replay: " or "next act: ") .. tostring(Bec.label)
         }
     end
-    App.saveNow()
+    local saved = App.saveNow()
+    while not saved and App.alive do
+        App.status("Match", "couldn't save match data; retrying")
+        task.wait(5)
+        saved = App.saveNow()
+    end
+    if not App.alive then return end
     App.status("Match", Gec)
     App.log(1, "MODE", Gec)
     if Fec == "stay" then
@@ -38155,8 +38857,8 @@ function Match.startTeam()
         if Sfc.train then
             Sfc.train.rec = Modes.rec(Sfc.train.key)
             Sfc.train.ldOverride = Simulator.slim(Match.ld)
-            if Config.autoTeam then
-                FarmHub.teamFor(Sfc.train, FarmHub.QUICK_SEARCH)
+            if Config.autoTeam and not FarmHub.teamFor(Sfc.train, FarmHub.QUICK_SEARCH) then
+                return false
             end
             Training.apply(Sfc.train)
         elseif Sfc.home then
@@ -38172,6 +38874,10 @@ function Match.startTeam()
     local cgc = App.gameSaid(Xfc)
     if bgc or not Zfc or cgc then
         App.log(1, "TEAM", string.format("team change before the first wave (%s): %s in %.1f s%s%s", tostring(Sfc.why), bgc and "the game took it" or "nothing changed", Utils.now() - Xfc, cgc and (" · the game said: " .. tostring(cgc)) or "", Zfc and "" or (" · error: " .. tostring(_fc))))
+    end
+    if Zfc and _fc == false then
+        Tfc("the planned team didn't go on")
+        return
     end
     if Sfc.must then
         if not Zfc or # agc < 6 or not Training.same(agc, Sfc.uuids) then
@@ -38207,6 +38913,30 @@ function Match.run()
     }
     Match.key, Match.kind = Modes.fromLevelData(Match.ld)
     Match.key = Match.key or "?"
+    local live = Modes.liveChallenge(Match.key)
+    if live and live.uuid ~= nil then
+        local actual = Match.ld._challenge_uuid
+        if actual ~= nil then
+            if tostring(actual) == tostring(live.uuid) or (live.ld and live.ld._challenge_uuid ~= nil
+                and tostring(actual) == tostring(live.ld._challenge_uuid)) then
+                Match.rotation = tostring(live.uuid)
+            end
+        elseif Match.key == "ch" and Match.ld.id == live.level and Match.ld._challenge == live.challenge then
+            Match.rotation = tostring(live.uuid)
+        elseif Match.key == "dc" and Brain.pending and Brain.pending.key == "dc"
+            and Brain.pending.rotation == tostring(live.uuid) and os.time() - (tonumber(Brain.pending.at) or 0) < 1200 then
+            Match.rotation = tostring(live.uuid)
+        end
+    end
+    Match.hadCompany = # Players:GetPlayers() > 1
+    local test = Brain.namekTest
+    if test and not test.wave and not test.running and os.time() - test.armedAt <= 900 and Match.key == "inf:namek_infinite" then
+        Match.namekTest = test
+        test.running = true
+        test.wave, test.peak, test.full, test.observed, test.comparisons, test.supportChoices = 0, 0, 0, 0, 0, 0
+        App.log(1, "TEST", "Namek Infinite test started")
+        App.saveNow()
+    end
     if Brain.holdLobby and os.time() - (tonumber(Brain.holdLobby.at) or 0) < 90 then
         App.log(1, "MODE", "this match started just after you pressed Go To Lobby: going back")
         pcall(App.flush)
@@ -38260,7 +38990,7 @@ function Match.run()
     end
     if Match.key == "dc" and (Match.ld._daily_challenge_weak_against or Match.ld._daily_challenge_strong_against) then
         lgc = Modes.dailyMod(Match.ld._challenge_uuid, Match.ld._daily_challenge_weak_against, Match.ld._daily_challenge_strong_against)
-    elseif Match.key == "dc" and Brain.live.daily and Brain.live.daily.mod then
+    elseif Match.key == "dc" and Match.rotation and Brain.live.daily and Brain.live.daily.mod then
         lgc = Brain.live.daily.mod
     end
     Match.mod = (next(lgc.weak) or next(lgc.strong) or next(lgc.res or {
@@ -38331,7 +39061,9 @@ function Match.run()
             Match.trainee = Hgc.uuid
         end
     end
-    local Igc = Match.ld._challenge or (Match.key == "dc" and Brain.live.daily and Brain.live.daily.challenge) or nil
+    local Igc = Match.ld._challenge or (Match.key == "dc" and Match.rotation and Brain.live.daily and Brain.live.daily.challenge) or nil
+    Match.challenge = Igc
+    Match.teamProfile, Match.teamUuids = Modes.equippedProfile(), Training.team()
     Match.calRun = {
         waveSec = {
         },
@@ -38364,7 +39096,7 @@ function Match.run()
     }, {
         __mode = "k"
     })
-    local Jgc, Kgc = pcall(Simulator.info, Simulator.slim(Match.ld), Match.key, Igc, Match.mod)
+    local Jgc, Kgc = pcall(Simulator.info, Simulator.slim(Match.ld), Match.key, Igc, Match.mod, Match.rotation)
     Match.info = Jgc and Kgc or nil
     if not Jgc then
         App.log(1, "ERROR", "sim info: " .. tostring(Kgc))
@@ -38524,14 +39256,16 @@ function Match.run()
     while App.alive do
         if Config.master and Config.battle then
             local gic, hic = pcall(function()
+                Match.hadCompany = Match.hadCompany or # Players:GetPlayers() > 1
+                if workspace._DATA.GameFinished.Value then
+                    pcall(Match.scan)
+                    Match.finish()
+                    return
+                end
                 Match.scan()
                 local Fhc, Ghc = pcall(Match.measure)
                 if not Fhc and FarmHub.every("measErr", 30) then
                     App.log(1, "ERROR", "measure: " .. tostring(Ghc))
-                end
-                if workspace._DATA.GameFinished.Value then
-                    Match.finish()
-                    return
                 end
                 if Config.autoStart and not Match.noBuy and not workspace._DATA.GameStarted.Value and (# Match.mine > 0 or Utils.now() - igc > 6) and (not Ahc or (Dhc and Utils.now() - Ahc > 6 and Utils.now() - Ehc < 60)) then
                     Ehc = Ehc or Utils.now()
@@ -38583,6 +39317,9 @@ function Match.run()
                 end
                 if FarmHub.every("act", 0.5) then
                     Match.actives()
+                end
+                if Match.namekTest and FarmHub.every("namekTestSample", 1) then
+                    Match.sampleNamekTest()
                 end
                 if FarmHub.every("prio", 2) then
                     local Uhc, Vhc = pcall(Match.targeting)
@@ -38777,8 +39514,7 @@ function Reports.mapOf(Pic)
     local Qic = Match.mapKey()
     local Ric = Brain.maps [Qic] or {
     }
-    local Sic = Brain.simCal [Pic] or {
-    }
+    local Sic = Brain.simCal[Simulator.calKey(Pic, Match.ld, Match.challenge, Match.rotation)] or {}
     local function Tic(Uic)
         Uic = tonumber(Uic)
         return Uic and math.floor(Uic * 10000 + 0.5) / 10000 or nil
@@ -39628,6 +40364,7 @@ GUI.NAV_SCHEMA = {
         { "Log", "scroll-text" }, { "Spending", "wallet" },
         { "History", "history" }, { "Systems", "activity" },
     } },
+    { Name = "TESTING", Icon = "flask-conical" },
     { Name = "Settings", Icon = "settings", Pages = {
         { "General", "settings-2" }, { "Profiles", "save" },
         { "Theme", "palette" }, { "Updates", "newspaper" },
@@ -39826,6 +40563,7 @@ function GUI.sectionSpec(page)
     local spec = route and route[page.GroupName]
     if spec then return spec end
     if page.Name == "Play" then return { "Farm", "Events", page.GroupName, "Left" } end
+    if page.Name == "TESTING" then return { "TESTING", "", page.GroupName, "Left" } end
     if page.Name == "Updates" then
         return { "Settings", "Updates", page.GroupName, "Left", page.SectionCount > 1 }
     end
@@ -41839,6 +42577,36 @@ function GUI.build()
         xrc("logLevel", math.clamp((tonumber(Ztc) or 2) - 1, 0, 2))
     end)
     Arc(bsc, "Print To Console", "Mirrors log lines to the executor console", "logConsole")
+    bsc = urc:Tab("🧪", "TESTING")
+    bsc:Section("One Namek Infinite run")
+    GUI.namekReport = bsc:Paragraph(GUI.namekTestText())
+    local fusionReport = bsc:Paragraph("Run a separate Namek forecast for Fused Hero.")
+    local fusionRunning = false
+    bsc:Button("🧪", "Compare Fused Hero on Namek", "Simulate your current team and a team with both Fusion units.", function()
+        if fusionRunning then return end
+        fusionRunning = true
+        fusionReport:Set("Simulating Namek Infinite…")
+        local ok, result = pcall(Simulator.testNamekFusion)
+        fusionRunning = false
+        local message = ok and result or ("Fusion forecast failed: " .. tostring(result))
+        fusionReport:Set(message)
+        App.log(1, "TEST", message)
+    end)
+    bsc:Button("🧪", "Arm Namek Infinite test", "Arm one test, then enter Namek Infinite with Auto Farm and battle automation enabled.", function()
+        if Match.namekTest and not Match.namekTest.finished then
+            return Trc("TESTING", "The current test is running.", "warning")
+        end
+        if App.where ~= "lobby" then
+            return Trc("TESTING", "Arm the test in the lobby before entering Namek Infinite.", "warning")
+        end
+        if not (Config.master and Config.battle and Config.actives) then
+            return Trc("TESTING", "Enable Auto Farm, battle automation and Auto Abilities first.", "warning")
+        end
+        Brain.namekTest = { armedAt = os.time() }
+        App.saveNow()
+        GUI.namekReport:Set(GUI.namekTestText())
+        Trc("TESTING", "Enter Namek Infinite within 15 minutes.", "success")
+    end)
     bsc = urc:Tab("⚙️", "Settings")
     Yrc(bsc, "Everything else. Settings save by themselves.")
     bsc:Section("General")
@@ -41846,6 +42614,10 @@ function GUI.build()
     Arc(bsc, "Auto Rewards", "Daily login, finished quests, battle pass, milestones", "rewards")
     Arc(bsc, "Redeem Codes", "Promo codes from the guides, at most once a day", "codes")
     Arc(bsc, "Community Tips", "Tier ratings for units the game hides, banner picks, buff chaining", "community")
+    vrc.hideMapTextures = bsc:Toggle("Hide Map Textures", "Hide decals and surface textures on this device. Turn off to restore them.", Config.hideMapTextures, function(enabled)
+        xrc("hideMapTextures", enabled)
+        GUI.setMapTexturesHidden(enabled)
+    end)
     bsc:Section("Gold shop")
     Arc(bsc, "Star Fruits For Gold", "Buys evolve material from the daily gold shop", "goldShop")
     Grc(bsc, "Gold Floor", "Star Fruits never take your gold below this", "goldFloor", {
@@ -42544,6 +43316,9 @@ function GUI.update()
     if Swc.lb then
         pcall(Swc.lb.Set, Adventure.lbText())
     end
+    if GUI.namekReport and FarmHub.every("namekTestUi", 2) then
+        pcall(GUI.namekReport.Set, GUI.namekTestText())
+    end
     if GUI.econCard and App.where == "match" then
         pcall(GUI.econCard.Set, {
             icon = "💰",
@@ -42587,6 +43362,7 @@ table.insert(App.conns, LocalPlayer.Idled:Connect(function()
 end))
 
 function App.cleanup()
+    GUI.setMapTexturesHidden(false)
     for xxc, yxc in ipairs(App.conns) do
         pcall(function()
             yxc:Disconnect()
@@ -42653,6 +43429,7 @@ App.C, App.B, App.CFG, App.MT, App.HUB, App.ST, App.UNIT, App.MODE = Core, Brain
 App.SIM, App.ECON, App.GUI, App.TRAIN, App.ADV, App.DG, App.STR, App.HUNT = Simulator, Economy, GUI, Training, Adventure, Dungeon, Strategy, Hunt
 App.REPORT = Reports
 App.version = VERSION
+GUI.setMapTexturesHidden(Config.hideMapTextures)
 task.spawn(GUI.build)
 task.spawn(function()
     task.wait(2)
