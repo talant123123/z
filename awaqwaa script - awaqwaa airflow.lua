@@ -10,10 +10,18 @@ local AIRFLOW_SOURCE = [====[
 -- Teleports use this edition's local cache instead of fetching the old UI script.
 -- Statically checked; not run inside Roblox.
 
+local VERSION = "2.5"
 if _G.AA_SF and _G.AA_SF.alive then
-    return
+    if _G.AA_SF.version == VERSION then
+        warn("[awaqwaa] v" .. VERSION .. " is already running")
+        return
+    end
+    -- Another version is running (you started a new file without rejoining): close it so this one
+    -- takes over with its own window. It saves its settings first, so nothing is lost.
+    warn("[awaqwaa] closing v" .. tostring(_G.AA_SF.version) .. " to start v" .. VERSION)
+    pcall(_G.AA_SF.unload)
+    task.wait(1)
 end
-local VERSION = "2.4"
 local CHANGELOG = {
     {
         v = "1.0",
@@ -1039,6 +1047,25 @@ table.insert(CHANGELOG, 1, {
             "Planner no longer stops with ready evolutions",
             "When your own team was kept and an evolution was ready, the comparison read a clear time that was not there and the search ended with an error.",
             "FIX"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
+    v = "2.5",
+    date = "Nov 16, 2026",
+    title = "Performance tab",
+    items = {
+        {
+            "⚡",
+            "Its own tab",
+            "Textures, effects, lighting, 3D and the FPS cap now sit in their own Performance tab in the side menu. In 2.4 that section was not registered in the window's layout, so the window stopped building there and the section never showed.",
+            "FIXED"
+        },
+        {
+            "🔁",
+            "A new version takes over",
+            "Starting a newer file while an older copy runs used to do nothing, so the old window stayed. Now the old copy saves and closes, and the new version opens.",
+            "FIXED"
         }
     }
 })
@@ -43923,6 +43950,7 @@ GUI.NAV_SCHEMA = {
         { "Log", "scroll-text" }, { "Spending", "wallet" },
         { "History", "history" }, { "Systems", "activity" },
     } },
+    { Name = "Performance", Icon = "gauge" },
     { Name = "Settings", Icon = "settings", Pages = {
         { "General", "settings-2" }, { "Profiles", "save" },
         { "Theme", "palette" }, { "Updates", "newspaper" },
@@ -43992,6 +44020,11 @@ GUI.LAYOUT = {
         ["What each part is doing"] = { "Activity", "Systems", "Subsystems", "Left" },
         ["Where your gold, gems and coins went"] = { "Activity", "Spending", "Spending summary", "Left" },
         Log = { "Activity", "Log", "Live log", "Left" },
+    },
+    Performance = {
+        Overview = { "Performance", "", "Status", "Left" },
+        ["Textures and effects"] = { "Performance", "", "Textures & effects", "Left" },
+        ["Lighting, 3D and FPS"] = { "Performance", "", "Lighting, 3D & FPS", "Right" },
     },
     Settings = {
         Overview = { "Settings", "General", "General", "Left" },
@@ -44087,6 +44120,11 @@ GUI.SHORT_TEXT = {
     ["Smart Skins"] = { "Manage event skins", "Equip useful skins and sell spare ones listed here." },
     ["Open Sunny Stars"] = { "Open Sunny Stars", "Use pearls above the reserve for the planned target." },
     ["Study Runs"] = { "Study runs", "Number of real matches to measure the selected unit." },
+    ["Textures"] = { "Textures", "Keep, Hide (undo any time) or Delete (back on the next map)." },
+    ["Effects"] = { "Effects", "Particles, trails, fire and lights, attack effects too." },
+    ["Simple Lighting"] = { "Simple lighting", "No shadows, bloom, blur, fog or water waves." },
+    ["Turn Off 3D"] = { "Turn off 3D", "Stops drawing the world. The farm keeps playing." },
+    ["FPS Cap"] = { "FPS cap", "Fewer frames, less CPU and GPU. Needs setfpscap." },
 }
 
 GUI.PAGE_HELP = {
@@ -44098,6 +44136,7 @@ GUI.PAGE_HELP = {
     Fuse = "1. Pick the target unit. 2. Check the fodder list. 3. Turn the switch on. Fodder units are used up for good.",
     Battle = "Battle automation must be ON for everything greyed out below it. To change your team: Planner (next page).",
     Activity = "",
+    Performance = "",
     Settings = "",
 }
 
@@ -46474,50 +46513,6 @@ function GUI.build()
     helper2(tab, "Auto Rewards", "Daily login, finished quests, battle pass, milestones", "rewards")
     helper2(tab, "Redeem Codes", "Promo codes from the guides, at most once a day", "codes")
     helper2(tab, "Community Tips", "Tier ratings for units the game hides, banner picks, buff chaining", "community")
-    tab:Section("Performance (this device only)")
-    live.gfx = tab:Label(GUI.gfxText())
-    ui.gfxTextures = tab:Dropdown("Textures", "Decals, surface textures and mesh skins on the map. Hide: undo any time. Delete: frees memory, back on the next map or after a rejoin. Units keep their look", {
-        "Keep",
-        "Hide",
-        "Delete"
-    }, ({
-        keep = 1,
-        hide = 2,
-        delete = 3
-    }) [tostring(Config.gfxTextures)] or 1, function(_arg1, _arg2, arg3)
-        helper("gfxTextures", GUI.GFX_MODES [tonumber(arg3) or 1] or "keep")
-        GUI.gfxApply()
-    end)
-    ui.gfxEffects = tab:Dropdown("Effects", "Particles, trails, beams, smoke, fire and lights, attack effects included. Hide: undo any time. Delete: gone for this map", {
-        "Keep",
-        "Hide",
-        "Delete"
-    }, ({
-        keep = 1,
-        hide = 2,
-        delete = 3
-    }) [tostring(Config.gfxEffects)] or 1, function(_arg1, _arg2, arg3)
-        helper("gfxEffects", GUI.GFX_MODES [tonumber(arg3) or 1] or "keep")
-        GUI.gfxApply()
-    end)
-    ui.gfxLighting = tab:Toggle("Simple Lighting", "No shadows, bloom, blur, fog or water waves, lowest render quality. Turn off to restore", Config.gfxLighting, function(enabled)
-        helper("gfxLighting", enabled)
-        GUI.gfxApply()
-    end)
-    ui.gfx3dOff = tab:Toggle("Turn Off 3D", "Stops drawing the world: the biggest saving when you leave it farming. The farm keeps playing, menus and this window stay", Config.gfx3dOff, function(enabled)
-        helper("gfx3dOff", enabled)
-        GUI.gfxApply()
-    end)
-    ui.gfxFps = tab:Dropdown("FPS Cap", "Fewer frames, less CPU and GPU. Needs setfpscap in your executor; Off puts back the usual 60", {
-        "Off",
-        "60",
-        "30",
-        "20",
-        "15"
-    }, table.find(GUI.GFX_FPS, tonumber(Config.gfxFps) or 0) or 1, function(_arg1, _arg2, arg3)
-        helper("gfxFps", GUI.GFX_FPS [tonumber(arg3) or 1] or 0)
-        GUI.gfxApply()
-    end)
     tab:Section("Gold shop")
     helper2(tab, "Star Fruits For Gold", "Buys evolve material from the daily gold shop", "goldShop")
     helper3(tab, "Gold Floor", "Star Fruits never take your gold below this", "goldFloor", {
@@ -46609,6 +46604,55 @@ function GUI.build()
     tab:Button("❌", "Unload", "Stop and remove the window", Color3.fromRGB(239, 68, 68), function()
         App.unload()
     end)
+    do
+        local tab = window:Tab("⚡", "Performance")
+        helper7(tab, "Only this device. Hide can be undone at any time; Delete lasts for this map. Start with Hide.")
+        live.gfx = tab:Label(GUI.gfxText())
+        tab:Section("Textures and effects")
+        ui.gfxTextures = tab:Dropdown("Textures", "Decals, surface textures and mesh skins on the map. Hide: undo any time. Delete: frees memory, back on the next map or after a rejoin. Units keep their look", {
+            "Keep",
+            "Hide",
+            "Delete"
+        }, ({
+            keep = 1,
+            hide = 2,
+            delete = 3
+        }) [tostring(Config.gfxTextures)] or 1, function(_arg1, _arg2, arg3)
+            helper("gfxTextures", GUI.GFX_MODES [tonumber(arg3) or 1] or "keep")
+            GUI.gfxApply()
+        end)
+        ui.gfxEffects = tab:Dropdown("Effects", "Particles, trails, beams, smoke, fire and lights, attack effects included. Hide: undo any time. Delete: gone for this map", {
+            "Keep",
+            "Hide",
+            "Delete"
+        }, ({
+            keep = 1,
+            hide = 2,
+            delete = 3
+        }) [tostring(Config.gfxEffects)] or 1, function(_arg1, _arg2, arg3)
+            helper("gfxEffects", GUI.GFX_MODES [tonumber(arg3) or 1] or "keep")
+            GUI.gfxApply()
+        end)
+        tab:Section("Lighting, 3D and FPS")
+        ui.gfxLighting = tab:Toggle("Simple Lighting", "No shadows, bloom, blur, fog or water waves, lowest render quality. Turn off to restore", Config.gfxLighting, function(enabled)
+            helper("gfxLighting", enabled)
+            GUI.gfxApply()
+        end)
+        ui.gfx3dOff = tab:Toggle("Turn Off 3D", "Stops drawing the world: the biggest saving when you leave it farming. The farm keeps playing, menus and this window stay", Config.gfx3dOff, function(enabled)
+            helper("gfx3dOff", enabled)
+            GUI.gfxApply()
+        end)
+        ui.gfxFps = tab:Dropdown("FPS Cap", "Fewer frames, less CPU and GPU. Needs setfpscap in your executor; Off puts back the usual 60", {
+            "Off",
+            "60",
+            "30",
+            "20",
+            "15"
+        }, table.find(GUI.GFX_FPS, tonumber(Config.gfxFps) or 0) or 1, function(_arg1, _arg2, arg3)
+            helper("gfxFps", GUI.GFX_FPS [tonumber(arg3) or 1] or 0)
+            GUI.gfxApply()
+        end)
+    end
     tab = window:Tab("📰", "Updates")
     local info = { NEW = load.Theme.Success, IMPROVED = load.Theme.Accent, FIX = load.Theme.Warning }
     for _, value in ipairs(CHANGELOG) do
