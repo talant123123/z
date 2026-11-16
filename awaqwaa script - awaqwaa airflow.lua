@@ -13,7 +13,7 @@ local AIRFLOW_SOURCE = [====[
 if _G.AA_SF and _G.AA_SF.alive then
     return
 end
-local VERSION = "2.1"
+local VERSION = "2.2"
 local CHANGELOG = {
     {
         v = "1.0",
@@ -972,6 +972,67 @@ table.insert(CHANGELOG, 1, {
             "Readable code",
             "About 7,600 leftover names like Bxc and qd now say what they hold. The compiled code is byte-for-byte the same as before for that step.",
             "IMPROVED"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
+    v = "2.2",
+    date = "Nov 16, 2026",
+    title = "Planner: Fusion, farms, buffers and supports",
+    items = {
+        {
+            "🧬",
+            "Carrot + Vego are planned as a pair",
+            "With both in your inventory the planner always plays at least one full lineup with the pair, even when Carrot ranks low on its own. It compares your team, the best regular lineup and the Fusion lineup on the same map, with regular buying and with yen saved for the pair while the defense holds. Vego's upgrade 7 lowers his own damage, so damage-per-yen never bought it and the pair never fused: steps towards Fusion now count what Fused Hero adds.",
+            "NEW"
+        },
+        {
+            "🌾",
+            "Short modes: two farms first",
+            "In modes that end by wave 15-20 the planner tries two farms, one and none, with a physical buffer, a magic buffer and no buffer. Two farms win when they pay back and the team holds the waves; a buffer must be up in the first half. A farm the simulation never buys gives its slot to an attacker.",
+            "NEW"
+        },
+        {
+            "♾️",
+            "Infinite: farms and buffers by result",
+            "No fixed rule in Infinite: lineups with 0, 1 and 2 farms and each buffer are played out, and the one that lasts longest is kept.",
+            "NEW"
+        },
+        {
+            "🎯",
+            "Buffers match their attackers",
+            "A buffer comes with attackers whose own damage type it raises (a second element or a name does not count). The simulator checks who stands inside the buffer's circle and reports the share of team damage under the buff. Matching attackers go down a little sooner in a match.",
+            "IMPROVED"
+        },
+        {
+            "🕰️",
+            "Supports are measured, not skipped",
+            "Units with control, slows, enemy amplification or ally buffs in the game's data (Homura's forms, ids homura and homura_evolved, included) get a real run in place of the weakest attacker. What the data shows but the simulator cannot play is named in planner.log.",
+            "NEW"
+        },
+        {
+            "🧭",
+            "One Plan block",
+            "Battle → Planner shows the map and mode, your team and the planned team by slot with roles, the expected wave, a short reason, progress, and three buttons: Recalculate plan, Equip planned team, Restore my team. TESTING shows the three lineups for Fused Hero on Namek together.",
+            "IMPROVED"
+        },
+        {
+            "🧾",
+            "planner.log tells why",
+            "Every compared lineup is listed as NOT TESTED, TESTED DID NOT WORK, WORKED BUT ANOTHER IS BETTER or CHOSEN, with the reason: farms, the buffer's damage type, Homura and Fusion.",
+            "IMPROVED"
+        },
+        {
+            "🛡️",
+            "Weak defense buys damage first",
+            "When enemies get far, a buffer is bought only if it clearly beats direct damage. The simulator also valued a buffer twice (the match did not); both now count it once.",
+            "FIX"
+        },
+        {
+            "🐞",
+            "Planner no longer stops with ready evolutions",
+            "When your own team was kept and an evolution was ready, the comparison read a clear time that was not there and the search ended with an error.",
+            "FIX"
         }
     }
 })
@@ -16394,7 +16455,7 @@ do
     end
     Brain.maps = helper(readJson.maps) or {
     }
-    local num = 3
+    local num = 4
     local flag = tonumber(readJson.simVer) == num
     Brain.simVer = num
     Brain.simRes = flag and helper(readJson.simRes) or {
@@ -17086,6 +17147,9 @@ function Units.capture()
             end
             Brain.unitData [key] = list2
             Units._rows [key] = nil
+            if Units._effects then
+                Units._effects [key] = nil
+            end
         end
     end
     if # list > 0 then
@@ -17676,6 +17740,180 @@ function Units.buffCopies(allyBuff)
         end
     end
     return value
+end
+
+Units._effects = {
+}
+
+-- What a unit brings besides its own damage, read only from data the game really sends:
+-- its attacks at every upgrade and its active ability. Used so a support is never
+-- dropped for low personal DPS before the simulator has measured what it adds.
+-- `useful` = at least one effect the simulator can play; `unmodeled` = seen in the data, not simulated.
+function Units.effects(id)
+    local cached = Units._effects [id]
+    if cached then
+        return cached
+    end
+    local unit = Core.Units [id]
+    local rows = type(unit) == "table" and Units.rows(id) or nil
+    local profile = {
+        tags = {
+        },
+        unmodeled = {
+        },
+        score = 0,
+        useful = false
+    }
+    if not rows then
+        profile.missing = true
+        return profile
+    end
+    local activeId, activeFrom, activeCd
+    for level = 0, rows.max do
+        local row = rows [level]
+        if row then
+            local ok, info = pcall(Units.attackInfo, row.atk, row.range)
+            if ok and info then
+                if (info.stun or 0) > 0 and (info.stun or 0) > (profile.stun or 0) then
+                    profile.stun, profile.ccFrom = info.stun, profile.ccFrom or level
+                    profile.ccCd = info.ccCd or 8
+                end
+                if (info.slowTime or 0) > 0 and (info.slowPct or 0) * info.slowTime > (profile.slow or 0) * (profile.slowTime or 0) then
+                    profile.slow, profile.slowTime, profile.ccFrom = info.slowPct, info.slowTime, profile.ccFrom or level
+                    profile.ccCd = profile.ccCd or info.ccCd or 3
+                end
+                if (info.amp or 0) > (profile.amp or 0) then
+                    profile.amp = info.amp
+                end
+                if info.bleed then
+                    profile.bleed = true
+                end
+            end
+            if row.active and not activeId then
+                activeId, activeFrom = row.active, level
+            end
+            if row.active then
+                activeCd = tonumber(row.activeCd) or activeCd
+            end
+        end
+    end
+    if activeId then
+        profile.active, profile.activeFrom, profile.activeCd = activeId, activeFrom, activeCd or 60
+        if Core.Attacks [activeId] or Units.fillAttack(activeId) then
+            local ok, info = pcall(Units.attackInfo, activeId)
+            if ok and info then
+                if info.ally then
+                    profile.ally = info.ally
+                end
+                if info.allyCd then
+                    profile.allyCd = info.allyCd
+                end
+                if info.allyRange then
+                    profile.allyRange = info.allyRange
+                    table.insert(profile.unmodeled, "its ability widens allies' range")
+                end
+                if info.selfDmg then
+                    profile.selfDmg = info.selfDmg
+                end
+                if info.baseSafe then
+                    profile.baseSafe = info.baseSafe
+                end
+                if (info.stun or 0) > 0 then
+                    profile.activeStun, profile.activeWide = info.stun, info.wholeMap and true or false
+                end
+                if (info.amp or 0) > (profile.amp or 0) then
+                    profile.amp = info.amp
+                end
+            end
+        elseif not Units.FUSION or not Units.FUSION.attacks [id] then
+            profile.activeUnknown = true
+            table.insert(profile.unmodeled, "ability \"" .. tostring(activeId) .. "\" has no data here")
+        end
+    end
+    local passiveCount = 0
+    for _, passive in pairs(type(unit.passives) == "table" and unit.passives or {
+    }) do
+        if type(passive) == "table" and passive.name and not tostring(passive.name):find("^Pact of") then
+            passiveCount = passiveCount + 1
+        end
+    end
+    if passiveCount > 0 then
+        profile.passives = passiveCount
+        table.insert(profile.unmodeled, passiveCount .. (passiveCount == 1 and " passive" or " passives") .. " not simulated")
+    end
+    local score = 0
+    if profile.stun then
+        table.insert(profile.tags, string.format("stuns %.1fs", profile.stun))
+        score = score + profile.stun / (profile.stun + (profile.ccCd or 8))
+    end
+    if profile.slow then
+        table.insert(profile.tags, string.format("slows %d%% for %.0fs", math.floor(profile.slow * 100 + 0.5), profile.slowTime))
+        score = score + profile.slow * profile.slowTime / (profile.slowTime + (profile.ccCd or 3))
+    end
+    if (profile.amp or 0) > 0 then
+        table.insert(profile.tags, string.format("enemies take +%d%%", math.floor(profile.amp * 100 + 0.5)))
+        score = score + profile.amp
+    end
+    if profile.ally then
+        local kinds, best = {
+        }, 0
+        for kind, rate in pairs(profile.ally.types or {
+        }) do
+            table.insert(kinds, tostring(kind))
+            best = math.max(best, tonumber(rate) or 0)
+        end
+        table.sort(kinds)
+        profile.buffKinds = kinds
+        table.insert(profile.tags, string.format("+%d%% %s damage to allies", math.floor(best * 100 + 0.5), table.concat(kinds, "/")))
+        score = score + best
+    end
+    if profile.allyCd then
+        table.insert(profile.tags, string.format("allies attack %d%% faster", math.floor((profile.allyCd.reduce or 0) * 100 + 0.5)))
+        score = score + (profile.allyCd.reduce or 0)
+    end
+    if profile.activeStun then
+        table.insert(profile.tags, string.format("ability stops %s for %.0fs", profile.activeWide and "every enemy" or "enemies in range", profile.activeStun))
+        score = score + profile.activeStun / math.max(1, profile.activeCd or 60) * (profile.activeWide and 3 or 1)
+    end
+    if profile.baseSafe then
+        table.insert(profile.tags, string.format("ability shields the base for %.0fs", profile.baseSafe))
+        score = score + 0.2
+    end
+    profile.score = score
+    profile.useful = score > 0
+    profile.control = (profile.stun or profile.slow or profile.activeStun) and true or false
+    Units._effects [id] = profile
+    return profile
+end
+
+-- One short word for the planner view and its log.
+function Units.roleName(id)
+    if Units.isFarm(id) then
+        return "farm"
+    end
+    local _, base = Units.types(id)
+    local buff = Units.allyBuff(id)
+    if buff then
+        local kinds = {
+        }
+        for kind in pairs(buff.types or {
+        }) do
+            table.insert(kinds, tostring(kind))
+        end
+        table.sort(kinds)
+        return table.concat(kinds, "/") .. " buffer"
+    end
+    if Units.FUSION and Units.FUSION.attacks [id] then
+        return "fusion · " .. tostring(base)
+    end
+    local effects = Units.effects(id)
+    if effects.control then
+        return "control · " .. tostring(base)
+    end
+    if effects.useful and (effects.amp or effects.allyCd or effects.baseSafe) then
+        return "support · " .. tostring(base)
+    end
+    return tostring(base) .. " attacker"
 end
 
 function Units.idol(id)
@@ -27164,7 +27402,13 @@ function FarmHub.recalculatePlan(notify)
             return "Equip at least one unit and recalculate.", "warning"
         end
         report("Planning team for " .. mode.label .. "…", "default")
-        local result, searchError = Simulator.plan(mode, true, nil, nil, true)
+        Simulator.memoOn()
+        local planned, result, searchError = pcall(Simulator.plan, mode, true, nil, nil, true)
+        Simulator.memo = nil
+        if not planned then
+            Simulator.finishProgress()
+            error(result, 0)
+        end
         if searchError then
             return "Team search failed for " .. mode.label .. ": " .. searchError, "error"
         end
@@ -27646,6 +27890,52 @@ function Economy.keepsUp(ctx, options, cost, addedDps, farmGain)
     return true
 end
 
+Economy.SUPPORT_TRUST = 0.6
+
+-- Saving for Fused Hero: while the defense keeps up, yen goes only to the two Fusion
+-- units (and farms). Returns the narrowed option list, or nil when everything may be bought.
+Economy.FUSION_NEAR = 3
+
+function Economy.fusionFocus(options, ctx, belongs, remaining)
+    local focus, found = {
+    }, false
+    for _, option in ipairs(options) do
+        if belongs(option) then
+            found = true
+            table.insert(focus, option)
+        elseif option.farm then
+            table.insert(focus, option)
+        end
+    end
+    if not found then
+        return nil, "nothing left to buy for the Fusion units"
+    end
+    if (ctx.attackers or 0) < 1 then
+        return focus, "opening with a Fusion unit"
+    end
+    local cover = Utils.clamp(ctx.cover or 0.6, 0.1, 1)
+    if ctx.leak then
+        return nil, "an enemy got past your units"
+    end
+    if (ctx.pressure or 0) >= math.min(Config.dangerReach, cover * 0.9) then
+        return nil, string.format("enemies reach %d%% of the road", math.floor((ctx.pressure or 0) * 100))
+    end
+    -- On the finish line (the rest of the pair costs about three waves of income) the forecast for
+    -- later waves no longer stops the saving: only enemies actually getting far do.
+    local budget = ctx.money or 0
+    for index = 1, math.min(Economy.FUSION_NEAR, ctx.coming and # ctx.coming or 0) do
+        budget = budget + (ctx.coming [index].reward or 0) + (ctx.farmNow or 0)
+    end
+    local near = remaining and remaining <= budget
+    if near then
+        return focus, "the pair is almost ready to fuse"
+    end
+    if ctx.coming and not Economy.keepsUp(ctx, focus, 0, 0, 0) then
+        return nil, "the next waves need more damage than the Fusion units alone add"
+    end
+    return focus, "the defense holds"
+end
+
 function Economy.decide(options, ctx)
     local cover = Utils.clamp(ctx.cover or 0.6, 0.1, 1)
     local clearLimit = math.max(Config.clearSec, 0.7 * (ctx.roadSec or 50) * cover)
@@ -27653,7 +27943,7 @@ function Economy.decide(options, ctx)
     ctx.piling = ctx.piling and slowClear
     local safe = ctx.attackers > 0 and ctx.pressure < math.min(Config.safeReach, cover * 0.75) and not ctx.piling and not slowClear
     local danger = ctx.pressure >= math.min(Config.dangerReach, cover * 0.9) or (ctx.piling and ctx.enemies >= 18)
-    local bestFarm, bestDamage
+    local bestFarm, bestDamage, bestDirect
     for _, option in ipairs(options) do
         if option.farm then
             if Config.farmUnits and option.gain > 0 then
@@ -27666,6 +27956,9 @@ function Economy.decide(options, ctx)
             option.ratio = option.gain / math.max(1, option.cost)
             if not bestDamage or option.ratio > bestDamage.ratio then
                 bestDamage = option
+            end
+            if not option.support and (not bestDirect or option.ratio > bestDirect.ratio) then
+                bestDirect = option
             end
         end
     end
@@ -27706,6 +27999,12 @@ function Economy.decide(options, ctx)
     end
     if fallsBehind and ctx.attackers > 0 then
         danger = true
+    end
+    -- A weak defense buys damage it can count on first: a buffer's gain is an estimate
+    -- (who stands in its circle, how long the buff is up), so it must beat direct damage clearly.
+    local buffLater = false
+    if danger and bestDamage and bestDamage.support and bestDirect and bestDirect.ratio >= bestDamage.ratio * Economy.SUPPORT_TRUST then
+        bestDamage, buffLater = bestDirect, true
     end
     local incomeRate = math.max(1, ctx.incomeRate or 20)
     local waveSec = ctx.waveSec or 20
@@ -27756,7 +28055,9 @@ function Economy.decide(options, ctx)
         why = string.format("farm pays back in %.1f waves (%d left) and nothing is close to the base", bestFarm.payback, ctx.left)
     elseif bestDamage then
         choice = bestDamage
-        if fallsBehind then
+        if buffLater then
+            why = "the defense is weak: direct damage first, the buffer after"
+        elseif fallsBehind then
             why = string.format("the next waves bring more HP than your units can kill: damage now")
         elseif danger then
             why = string.format("enemies reach %d%% of the road (your units cover %d%%): damage now", math.floor(ctx.pressure * 100), math.floor(cover * 100))
@@ -27830,6 +28131,8 @@ function Simulator.voteSec(arg1, count)
     return arg1.voteAt
 end
 Simulator.LAND_CAP = 1.3
+-- An attacker whose damage type an equipped buffer raises goes down a little sooner.
+Simulator.BUFF_MATCH = 1.15
 
 function Simulator.autoskip()
     local ok, res = pcall(function()
@@ -28733,7 +29036,7 @@ function Simulator.run(info, teamFrom, arg3)
     end
     for key in pairs(arg3 or {
     }) do
-        if key ~= "hpMul" then
+        if key ~= "hpMul" and key ~= "fusionSave" then
             return Simulator.runRaw(info, teamFrom, arg3)
         end
     end
@@ -28742,7 +29045,7 @@ function Simulator.run(info, teamFrom, arg3)
         list[#list + 1] = Simulator.profileSig({value.u})
     end
     table.sort(list)
-    local joined = tostring(info.zone) .. "|" .. tostring(arg3 and arg3.hpMul or 1) .. "|" .. table.concat(list, ",")
+    local joined = tostring(info.zone) .. "|" .. tostring(arg3 and arg3.hpMul or 1) .. "|" .. tostring(arg3 and arg3.fusionSave or false) .. "|" .. table.concat(list, ",")
     local lvlKey = info._memoKey or info
     local value = memo[lvlKey]
     if not value then
@@ -28793,6 +29096,28 @@ function Simulator.runRaw(arg1, arg2, arg3)
     }, {
     }
     local baseHp = arg1.baseHp
+    -- What the run bought and when: lets the planner say why a lineup worked or not.
+    local stats = {
+        placedWave = {
+        },
+        farmSpent = 0,
+        farmEarned = 0,
+        buffShare = 0,
+        buffGain = 0,
+        buffWaves = 0,
+        saved = 0
+    }
+    local buffKinds = {
+    }
+    if Config.actives ~= false then
+        for _, member in ipairs(arg2) do
+            local buff = Units.allyBuff(member.id)
+            for kind in pairs(buff and buff.types or {
+            }) do
+                buffKinds [kind] = true
+            end
+        end
+    end
     local list10 = {
     }
     for i = 1, arg1.total do
@@ -29010,11 +29335,14 @@ function Simulator.runRaw(arg1, arg2, arg3)
             arg12.mask = list
         end
         arg12.width = 0
+        local binSum = 0
         for i = 1, Simulator.BINS do
             if arg12.mask [i] then
                 arg12.width = arg12.width + 1
+                binSum = binSum + i
             end
         end
+        arg12.center = arg12.width > 0 and binSum / arg12.width or Simulator.BINS / 2
         local row = arg12.e.rows [math.min(arg12.lvl, arg12.e.rows.max)]
         local attackInfo = Units.attackInfo(row.atk, row.range)
         arg12.aoe, arg12.hits, arg12.bleed = attackInfo.n, attackInfo.hits, attackInfo.bleed
@@ -29057,12 +29385,98 @@ function Simulator.runRaw(arg1, arg2, arg3)
     local cd = arg1.fx and arg1.fx.cd or 1
     local list13, num5, ratio = {
     }, 1, nil
+    local buffRates = list13
+    local buffRange = arg1.rangeScale or 1
+    -- Which attackers stand inside a buffer's circle. With planned spots the real distance decides;
+    -- otherwise units are compared by where they sit along the road: a circle of this range spans a
+    -- stretch of road, plus a bin of slack each side because roads bend back on themselves.
+    local function buffReach(bufferId, range, types)
+        local members, total = {
+        }, 0
+        for _, item in ipairs(list3) do
+            if not item.e.farm and not item.buff and types [item.base] and item.dps > 0 then
+                table.insert(members, item)
+                total = total + item.dps
+            end
+        end
+        local covered, coveredDps = {
+        }, 0
+        if # members == 0 then
+            return covered, 0, 0
+        end
+        local span = Simulator.boxBins(arg1, range, Simulator.BINS) + 2
+        if flag42 or span >= Simulator.BINS then
+            for _, item in ipairs(members) do
+                covered [item] = true
+            end
+            return covered, total, total
+        end
+        local spots = arg3.layout and arg3.layout.spots
+        local origin = spots and spots [bufferId]
+        local loose = {
+        }
+        for _, item in ipairs(members) do
+            local spot = origin and not item.later and spots [item.e.id]
+            if spot then
+                local x, z = spot.X - origin.X, spot.Z - origin.Z
+                if x * x + z * z <= range * range then
+                    covered [item] = true
+                    coveredDps = coveredDps + item.dps
+                end
+            else
+                table.insert(loose, item)
+            end
+        end
+        local bestSet, bestDps
+        for _, anchor in ipairs(loose) do
+            local set, dps = {
+            }, 0
+            for _, item in ipairs(loose) do
+                if math.abs((item.center or 0) - (anchor.center or 0)) <= span / 2 then
+                    set [item] = true
+                    dps = dps + item.dps
+                end
+            end
+            if not bestDps or dps > bestDps then
+                bestSet, bestDps = set, dps
+            end
+        end
+        for item in pairs(bestSet or {
+        }) do
+            covered [item] = true
+        end
+        return covered, coveredDps + (bestDps or 0), total
+    end
     local function helper7(arg1)
         local value = Brain.stack [arg1.attack]
         return value and value.stacks and (value.cap or 1) or nil
     end
     local function helper8()
         table.clear(list13)
+        local reached = {
+        }
+        for _, item in ipairs(list3) do
+            item.buffK = nil
+            if item.buff and not reached [item.buff.attack] then
+                reached [item.buff.attack] = buffReach(item.e.id, Units.range(item.e.u, item.lvl) * buffRange, item.buff.types)
+            end
+        end
+        for _, item in ipairs(list3) do
+            if not item.buff and not item.e.farm then
+                for attack, covered in pairs(reached) do
+                    if covered [item] then
+                        item.buffK = 1
+                    elseif item.buffK == nil then
+                        for _, other in ipairs(list3) do
+                            if other.buff and other.buff.attack == attack and other.buff.types [item.base] then
+                                item.buffK = 0
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+        end
         local count, count2 = 0, 0
         local list = {
         }
@@ -29101,7 +29515,7 @@ function Simulator.runRaw(arg1, arg2, arg3)
         ratio = count2 > 0 and count2 / Simulator.BINS or nil
     end
     local function helper9(arg1)
-        local dps = arg1.dps * num5 * (1 + (list13 [arg1.base] or 0))
+        local dps = arg1.dps * num5 * (1 + (list13 [arg1.base] or 0) * (arg1.buffK or 1))
         if count3 < count8 then
             dps = dps / (1 - count9)
         end
@@ -29172,9 +29586,10 @@ function Simulator.runRaw(arg1, arg2, arg3)
             return 0
         end
         local count2 = 0
+        local covered = buffReach(arg1.id, Units.range(arg1.u, 0) * buffRange, allyBuff.types)
         for _, item in ipairs(list3) do
             local value2 = allyBuff.types [item.base]
-            if value2 then
+            if value2 and covered [item] then
                 local value22 = value and math.max(0, math.min(value, (count + 1) * value2 * allyBuff.uptime) - math.min(value, count * value2 * allyBuff.uptime)) or value2 * allyBuff.uptime
                 count2 = count2 + item.dps * value22
             end
@@ -29189,8 +29604,13 @@ function Simulator.runRaw(arg1, arg2, arg3)
         local item = list10 [count4] or 0
         for _, item2 in ipairs(list3) do
             if item2.e.farm then
-                item = item + Units.farm(item2.e.u, item2.lvl)
+                local income = Units.farm(item2.e.u, item2.lvl)
+                item = item + income
+                stats.farmEarned = stats.farmEarned + income
             end
+        end
+        if not stats.farmPaidWave and stats.farmSpent > 0 and stats.farmEarned >= stats.farmSpent then
+            stats.farmPaidWave = count4
         end
         start = start + item
         table.insert(list7, {
@@ -29408,6 +29828,41 @@ function Simulator.runRaw(arg1, arg2, arg3)
         purchasing = table.clone(arg2)
         table.insert(purchasing, fusedEntry)
         fusionLevels = {}
+        -- Yen the pair costs before it can fuse: both placements and every upgrade up to 7.
+        stats.fusionCost = 0
+        for _, parent in ipairs({ first, second }) do
+            stats.fusionCost += (parent.data.cost or 0) * arg1.costScale
+            for level = 1, fusion.upgrade do
+                stats.fusionCost += (parent.rows[level].cost or 0) * arg1.costScale
+            end
+        end
+    end
+    local function finish(result)
+        local summary = {
+            farmKinds = 0,
+            farmSpent = stats.farmSpent,
+            farmEarned = stats.farmEarned,
+            farmPaidWave = stats.farmPaidWave,
+            fusionCost = stats.fusionCost,
+            saved = stats.saved,
+            paused = stats.paused,
+            placedWave = stats.placedWave
+        }
+        for id, wave in pairs(stats.placedWave) do
+            if Units.isFarm(id) then
+                summary.farmKinds = summary.farmKinds + 1
+                summary.farmWave = math.min(summary.farmWave or wave, wave)
+            elseif Units.allyBuff(id) then
+                summary.buffWave = math.min(summary.buffWave or wave, wave)
+            end
+        end
+        if stats.buffWaves > 0 then
+            summary.buffShare = stats.buffShare / stats.buffWaves
+            summary.buffGain = stats.buffGain / stats.buffWaves
+        end
+        result.stats = summary
+        result.fusionWave, result.fusionLevels = fusionWave, fusionLevels
+        return result
     end
     local function fuseReadyParents()
         if not fusedEntry then return end
@@ -29453,6 +29908,23 @@ function Simulator.runRaw(arg1, arg2, arg3)
                 count = count + helper9(item)
             end
             list8 [count4] = count
+            if next(buffRates) and count > 0 then
+                local plain, buffed, bonus = 0, 0, 0
+                for _, item in ipairs(list3) do
+                    if not item.buff and item.dps > 0 then
+                        local rate = (buffRates [item.base] or 0) * (item.buffK or 1)
+                        local own = item.dps * num5
+                        plain = plain + own
+                        if rate > 0 then
+                            buffed, bonus = buffed + own, bonus + own * rate
+                        end
+                    end
+                end
+                if plain > 0 then
+                    stats.buffShare, stats.buffGain = stats.buffShare + buffed / plain, stats.buffGain + bonus / plain
+                    stats.buffWaves = stats.buffWaves + 1
+                end
+            end
             local wave = Simulator.wave(arg1, count4)
             for i, value in ipairs(wave) do
                 value.hp = value.hp * hpMul
@@ -29726,7 +30198,7 @@ function Simulator.runRaw(arg1, arg2, arg3)
             for _, item in ipairs(list3) do
                 list [item.e.id] = math.max(list [item.e.id] or 0, item.lvl)
             end
-            return {
+            return finish({
                 won = false,
                 wave = count4,
                 t = count3,
@@ -29736,10 +30208,8 @@ function Simulator.runRaw(arg1, arg2, arg3)
                 money = start,
                 tk = count,
                 left = count5 > 0 and count2 / count5 or 1,
-                fusionWave = fusionWave,
-                fusionLevels = fusionLevels,
                 levels = list
-            }
+            })
         end
         if count4 >= arg1.total and # list == 0 and # list2 == 0 then
             local list = {
@@ -29747,7 +30217,7 @@ function Simulator.runRaw(arg1, arg2, arg3)
             for _, item in ipairs(list3) do
                 list [item.e.id] = math.max(list [item.e.id] or 0, item.lvl)
             end
-            return {
+            return finish({
                 won = true,
                 wave = count4,
                 t = count3,
@@ -29756,10 +30226,8 @@ function Simulator.runRaw(arg1, arg2, arg3)
                 spentAt = list9,
                 money = start,
                 tk = count,
-                fusionWave = fusionWave,
-                fusionLevels = fusionLevels,
                 levels = list
-            }
+            })
         end
         local count, count7 = 0, 0
         for _, item in ipairs(list2) do
@@ -29814,6 +30282,44 @@ function Simulator.runRaw(arg1, arg2, arg3)
         for i = 1, 3 do
             local list, count8, count9, count10 = {
             }, 0, 0, 0
+            -- The last upgrades before Fusion can lower a unit's own damage (Vego's upgrade 7 does), so by
+            -- damage per yen alone they are never bought. Every step on the path is worth at least its
+            -- share of what Fused Hero adds over the pair as it stands now.
+            local pathFloor, pathLead, pathLeft
+            if fusedEntry then
+                local heroes = 0
+                pathLead = {
+                }
+                for _, tower in ipairs(list3) do
+                    if tower.e == fusedEntry then
+                        heroes = heroes + 1
+                    elseif (tower.e == first or tower.e == second) and (not pathLead [tower.e] or tower.lvl > pathLead [tower.e].lvl) then
+                        pathLead [tower.e] = tower
+                    end
+                end
+                if heroes < fusedEntry.cap then
+                    local remaining, standing = 0, 0
+                    for _, parent in ipairs({ first, second }) do
+                        local lead = pathLead [parent]
+                        if not lead then
+                            remaining = remaining + (parent.data.cost or 0) * arg1.costScale
+                        end
+                        for level = (lead and lead.lvl or 0) + 1, fusion.upgrade do
+                            remaining = remaining + (parent.rows [level].cost or 0) * arg1.costScale
+                        end
+                        standing = standing + (lead and helper2(parent, lead.lvl) or 0)
+                    end
+                    local heroStep = math.min(1, heroRows.max)
+                    local total = remaining + (heroStep > 0 and (heroRows [1].cost or 0) * arg1.costScale or 0)
+                    local after = helper2(fusedEntry, heroStep)
+                    pathLeft = remaining
+                    if after > standing and total > 0 then
+                        pathFloor = (after - standing) / total
+                    end
+                else
+                    pathLead = nil
+                end
+            end
             for _, value in ipairs(purchasing) do
                 local list2 = {
                 }
@@ -29848,12 +30354,13 @@ function Simulator.runRaw(arg1, arg2, arg3)
                             })
                         else
                             local shieldGain = count6 > 0 and not arg3.oldBuy and Economy.shieldGain(item.dpsAll or item.dps, value.rows [item.lvl], helper2(value, item.lvl + 1), row, count6, num3, cd, eff) or Economy.upgradeGain(item.dpsAll or item.dps, value.rows, item.lvl, cost, arg1.costScale, helper2(value, item.lvl + 1))
+                            local stepGain = shieldGain * (item.train and Training.BONUS or 1) * helper10(value.id, item.lvl) * helper14(item) * helper16(item) + helper(value, item.lvl, false)
+                            if pathFloor and pathLead [value] == item and item.lvl < fusion.upgrade then
+                                stepGain = math.max(stepGain, pathFloor * cost)
+                            end
                             table.insert(list, {
                                 cost = cost,
-                                gain = shieldGain * (item.train and Training.BONUS or 1) * helper10(value.id,
-                                item.lvl) * helper14(item) * helper16(item) + helper(value,
-                                item.lvl,
-                                false),
+                                gain = stepGain,
                                 c = item
                             })
                             for i = item.lvl + 1, value.rows.max do
@@ -29890,6 +30397,9 @@ function Simulator.runRaw(arg1, arg2, arg3)
                     else
                         local value2 = arg3.train ~= nil and value.u.uuid == arg3.train
                         local value3 = (# list2 == 0 and 2.5 or 1) * (count10 < 3 and 1.3 or 1) * (value2 and Training.BONUS or 1) * helper10(value.id, 0, true)
+                        if not allyBuff and buffKinds [select(2, Units.types(value.id))] then
+                            value3 = value3 * Simulator.BUFF_MATCH
+                        end
                         local row = value.rows [0]
                         local attackInfo = row and Units.attackInfo(row.atk, row.range) or {
                             n = 1,
@@ -29908,22 +30418,28 @@ function Simulator.runRaw(arg1, arg2, arg3)
                         end
                         local supportGain = 0
                         if allyBuff and Config.actives then
+                            local covered = buffReach(value.id, Units.range(value.u, 0) * buffRange, allyBuff.types)
                             for _, tower in ipairs(list3) do
                                 local base = allyBuff.types[tower.base]
-                                if base and not tower.buff then
+                                if base and not tower.buff and covered[tower] then
                                     local after = Units.buffAverage(allyBuff, #list2 + 1, base, Config.community)
                                     local before = Units.buffAverage(allyBuff, #list2, base, Config.community)
                                     supportGain += tower.dps * math.max(0, after - before)
                                 end
                             end
                         end
+                        -- The two estimates describe the same buff: counting both made the simulator buy
+                        -- buffers about twice as eagerly as the live match does.
+                        supportGain = math.max(supportGain, helper13(value))
+                        local placeGain = supportGain + shieldDps * value3 + helper12(value) + helper15(value, attackInfo) + helper(value, 0, true)
+                        if pathFloor and (value == first or value == second) and not pathLead [value] then
+                            placeGain = math.max(placeGain, pathFloor * cost)
+                        end
                         table.insert(list, {
                             place = true,
+                            support = allyBuff ~= nil or nil,
                             cost = cost,
-                            gain = supportGain + shieldDps * value3 + helper13(value) + helper12(value) + helper15(value,
-                            attackInfo) + helper(value,
-                            0,
-                            true),
+                            gain = placeGain,
                             e = value,
                             train = value2 and (# list2 == 0 and "first" or "more") or nil
                         })
@@ -29957,7 +30473,7 @@ function Simulator.runRaw(arg1, arg2, arg3)
                 })
             end
             local num = arg3.oldBuy and 1 or helper11()
-            local decide = Economy.decide(list, {
+            local ctx = {
                 money = start,
                 left = value2,
                 attackers = count10,
@@ -29979,13 +30495,41 @@ function Simulator.runRaw(arg1, arg2, arg3)
                 arg1.walk * (arg1.speedScale or 1)),
                 cover = ratio,
                 leak = (ratio and count2 > ratio + 0.02) and count2 or nil
-            })
+            }
+            local options = list
+            if arg3.fusionSave and fusedEntry and not fusionWave then
+                -- One Carrot and one Vego are enough to fuse: yen goes to the most upgraded copy of each.
+                local focus, focusWhy = Economy.fusionFocus(list, ctx, function(option)
+                    local entry = option.e or (option.c and option.c.e)
+                    if not (entry and fusion.attacks[entry.id]) then return false end
+                    local lead
+                    for _, tower in ipairs(list3) do
+                        if tower.e == entry and (not lead or tower.lvl > lead.lvl) then lead = tower end
+                    end
+                    if option.place then return lead == nil end
+                    return option.c == lead and lead.lvl < fusion.upgrade
+                end, pathLeft)
+                if focus then
+                    options = focus
+                    stats.saved = stats.saved + 1
+                else
+                    stats.paused = stats.paused or {
+                    }
+                    stats.paused [focusWhy] = (stats.paused [focusWhy] or 0) + 1
+                end
+            end
+            local decide = Economy.decide(options, ctx)
             if not decide or decide.cost > start then
                 break
             end
             start = start - decide.cost
             list9 [count4] = (list9 [count4] or 0) + decide.cost
+            local boughtFor = decide.e or (decide.c and decide.c.e)
+            if boughtFor and boughtFor.farm then
+                stats.farmSpent = stats.farmSpent + decide.cost
+            end
             if decide.place then
+                stats.placedWave [decide.e.id] = stats.placedWave [decide.e.id] or count4
                 local info = {
                     e = decide.e,
                     lvl = 0,
@@ -30045,7 +30589,7 @@ function Simulator.runRaw(arg1, arg2, arg3)
             task.wait()
         end
     end
-    return {
+    return finish({
         won = false,
         wave = count4,
         t = count3,
@@ -30053,18 +30597,24 @@ function Simulator.runRaw(arg1, arg2, arg3)
         dpsAt = list8,
         spentAt = list9,
         money = start,
-        fusionWave = fusionWave,
-        fusionLevels = fusionLevels,
         timeout = true,
         tk = count
-    }
+    })
 end
 Simulator.INF_CAP = 80
 
-function Simulator.evaluate(applyFx, teamFrom)
-    local simResult = Simulator.run(applyFx, teamFrom, {
-        hpMul = 1
-    })
+function Simulator.evaluate(applyFx, teamFrom, extra)
+    local function at(hpMul)
+        local opts = {
+            hpMul = hpMul
+        }
+        for key, option in pairs(extra or {
+        }) do
+            opts [key] = option
+        end
+        return opts
+    end
+    local simResult = Simulator.run(applyFx, teamFrom, at(1))
     local info = {
         won = simResult.won,
         wave = simResult.wave,
@@ -30079,21 +30629,15 @@ function Simulator.evaluate(applyFx, teamFrom)
         info.p = 1
         info.margin = simResult.won and string.format("lasts past wave %d", applyFx.total) or string.format("lasts to wave %d (%.0f min)", simResult.wave, simResult.t / 60)
     elseif simResult.won then
-        local value = Simulator.run(applyFx, teamFrom, {
-            hpMul = 1.3
-        })
+        local value = Simulator.run(applyFx, teamFrom, at(1.3))
         info.p = value.won and 0.92 or 0.7
         info.margin = value.won and "wins with room to spare" or "wins, but only just"
     else
-        local value = Simulator.run(applyFx, teamFrom, {
-            hpMul = 0.75
-        })
+        local value = Simulator.run(applyFx, teamFrom, at(0.75))
         info.p = value.won and 0.25 or 0.05
         info.margin = value.won and string.format("loses at wave %d (would win vs 25%% weaker enemies)", simResult.wave) or string.format("loses at wave %d of %d", simResult.wave, applyFx.total)
         if not value.won then
-            local value = Simulator.run(applyFx, teamFrom, {
-                hpMul = 0.25
-            })
+            local value = Simulator.run(applyFx, teamFrom, at(0.25))
             if not value.won then
                 info.p, info.hopeless = 0.005, true
                 info.margin = string.format("loses at wave %d of %d, even against enemies at a quarter of their health", simResult.wave, applyFx.total)
@@ -30179,6 +30723,7 @@ function Simulator.pool(mod, level)
         local isUtility = Units.allyBuff(unitObj.unit_id) ~= nil or Units.idol(unitObj.unit_id)
             or (needRegen and Units.bleeds(unitObj.unit_id) ~= nil)
             or (needAir and Units.airFrom(unitObj.unit_id) == 0)
+            or Units.effects(unitObj.unit_id).useful
         if not isUtility and Units.rows(unitObj.unit_id) and Units.rows(unitObj.unit_id)[0] then
             local r0 = Units.rows(unitObj.unit_id)[0]
             local ai0 = r0.atk and Units.attackInfo(r0.atk, r0.range)
@@ -30274,6 +30819,27 @@ function Simulator.pool(mod, level)
             table.insert(list, list3 [i].u)
         end
     end
+    -- A support is not dropped for low personal DPS: the three strongest confirmed effects
+    -- outside the top ten (control, enemy amplification, ally buffs from an ability) join the pool.
+    do
+        local helpful = {
+        }
+        for i = 11, # list3 do
+            local effects = Units.effects(list3 [i].u.unit_id)
+            if effects.useful then
+                table.insert(helpful, {
+                    u = list3 [i].u,
+                    v = effects.score
+                })
+            end
+        end
+        table.sort(helpful, function(arg1, arg2)
+            return arg1.v > arg2.v
+        end)
+        for i = 1, math.min(3, # helpful) do
+            table.insert(list, helpful [i].u)
+        end
+    end
     if level and ((level.flyChance or 0) > 0 or level.mapFly or (level.shield or 0) > 0) then
         local list2, list4 = {
         }, {
@@ -30356,7 +30922,7 @@ function Simulator.cliff(arg1, teamFrom, arg3)
     return Simulator.LADDER [# Simulator.LADDER], value
 end
 
-function Simulator.exam(level, current)
+function Simulator.exam(level, current, extra)
     local teamFrom, count, count2 = Simulator.teamFrom(current, level.map), 0, 0
     for _, value in ipairs(Simulator.LADDER) do
         local count3, count4 = 0, 0
@@ -30365,9 +30931,14 @@ function Simulator.exam(level, current)
             1,
             1.08
         }) do
-            local simResult = Simulator.run(level, teamFrom, {
+            local opts = {
                 hpMul = value * value2
-            })
+            }
+            for key, option in pairs(extra or {
+            }) do
+                opts [key] = option
+            end
+            local simResult = Simulator.run(level, teamFrom, opts)
             if simResult.won then
                 count3 = count3 + 1
             end
@@ -30463,10 +31034,148 @@ function Simulator.strength(applyFx, arg2)
     return count, count2, count3, count4
 end
 
-function Simulator.fusionLineup(level, team, pool)
-    if not Config.actives then return nil, "Auto Abilities is off." end
+Simulator.SHORT_WAVES = 20
+Simulator.FARM_SLACK = 3
+Simulator.SUPPORT_TRIES = 3
+Simulator.STATUS = {
+    untested = "NOT TESTED",
+    failed = "TESTED, DID NOT WORK",
+    worked = "WORKED, ANOTHER LINEUP IS BETTER",
+    chosen = "CHOSEN"
+}
+
+-- Modes that end by wave 15-20: here two farms and an early buffer get the first look.
+function Simulator.isShort(level)
+    return not (level.infinite and Simulator.unbound(level.ld)) and (tonumber(level.total) or 99) <= Simulator.SHORT_WAVES
+end
+
+function Simulator.newReport(level, label)
+    return {
+        label = label,
+        map = level.map,
+        total = level.total,
+        endless = (level.infinite and Simulator.unbound(level.ld)) and true or false,
+        short = Simulator.isShort(level),
+        rows = {
+        },
+        supports = {
+        },
+        fusion = {
+            status = "untested",
+            note = "the team search did not run"
+        }
+    }
+end
+
+-- The planner view shows this while a search runs.
+function Simulator.stage(fraction, text)
+    local progress = Simulator.progress
+    if not progress then
+        return
+    end
+    progress.frac = math.max(progress.frac or 0, fraction)
+    if text then
+        progress.text = text
+    end
+    progress.at = Utils.now()
+end
+
+-- Units the structured comparison draws from: the pool first (its copy of a unit is the
+-- strongest one owned), then anything else already in the lineup.
+function Simulator.roster(pool, extra, level)
+    local roster = {
+        farms = {
+        },
+        buffers = {
+        },
+        attackers = {
+        },
+        supports = {
+        }
+    }
+    local seen, rank = {
+    }, {
+    }
+    local function add(unit)
+        local id = unit.unit_id
+        if seen [id] or not Units.rows(id) then
+            return
+        end
+        seen [id] = true
+        if Units.isFarm(id) then
+            local ok, income = pcall(Units.farm, unit, Units.rows(id).max)
+            rank [unit] = ok and income or 0
+            table.insert(roster.farms, unit)
+        elseif Units.allyBuff(id) then
+            rank [unit] = Units.effects(id).score
+            table.insert(roster.buffers, unit)
+        else
+            local ok, score = pcall(Units.score, unit, level.mod)
+            rank [unit] = (ok and score or 0) * Units.skinMul(unit, level.skinSet)
+            table.insert(roster.attackers, unit)
+            if Units.effects(id).useful and not Units.FUSION.attacks [id] then
+                table.insert(roster.supports, unit)
+            end
+        end
+    end
+    for _, unit in ipairs(pool) do
+        add(unit)
+    end
+    for _, unit in ipairs(extra or {
+    }) do
+        add(unit)
+    end
+    local function byRank(a, b)
+        return rank [a] > rank [b]
+    end
+    table.sort(roster.farms, byRank)
+    table.sort(roster.buffers, byRank)
+    table.sort(roster.attackers, byRank)
+    table.sort(roster.supports, function(a, b)
+        return Units.effects(a.unit_id).score > Units.effects(b.unit_id).score
+    end)
+    roster.rank = rank
+    return roster
+end
+
+-- farms, then the buffer, then attackers. With a buffer in, attackers whose own damage type
+-- it raises come first: a second element or a name does not make a unit fit the buff.
+function Simulator.compose(roster, farmCount, buffer, kind, must)
+    local team, used = {
+    }, {
+    }
+    local function add(unit)
+        if unit and # team < 6 and not used [unit.unit_id] then
+            used [unit.unit_id] = true
+            table.insert(team, unit)
+        end
+    end
+    for _, unit in ipairs(must or {
+    }) do
+        add(unit)
+    end
+    for index = 1, farmCount do
+        add(roster.farms [index])
+    end
+    if buffer then
+        add(buffer)
+        for _, unit in ipairs(roster.attackers) do
+            local _, base = Units.types(unit.unit_id)
+            if base == kind then
+                add(unit)
+            end
+        end
+    end
+    for _, unit in ipairs(roster.attackers) do
+        add(unit)
+    end
+    return team
+end
+
+function Simulator.fusionLineup(level, team, pool, farmCount, roster)
+    if not Config.actives then return nil, "Auto Abilities is off, and Fusion is cast as an ability" end
     local fusion = Units.FUSION
-    if not Units.rows(fusion.hero) then return nil, "Fused Hero stats are unavailable." end
+    if not Units.rows(fusion.hero) then return nil, "Fused Hero stats are unavailable" end
     local lineup, used = {}, {}
     for _, id in ipairs(fusion.parents) do
         local candidate = pool.fusionParents and pool.fusionParents[id]
@@ -30476,31 +31185,46 @@ function Simulator.fusionLineup(level, team, pool)
                 if equipped.unit_id == id then unit = equipped break end
             end
         end
-        if not unit then return nil, Units.name(id) .. " was not found in the inventory or equipped team." end
+        if not unit then return nil, Units.name(id) .. " was not found in the inventory or the equipped team" end
         local rows = Units.rows(id)
         if not rows or rows.max < fusion.upgrade then
-            return nil, Units.name(id) .. " is present, but upgrade 7 data is unavailable."
+            return nil, Units.name(id) .. " is owned, but its upgrade 7 data is unavailable"
         end
         table.insert(lineup, unit)
         used[id] = true
     end
     local entries = Simulator.teamFrom(lineup, level.map)
     if #entries < 2 or not entries[1].placeable or not entries[2].placeable then
-        return nil, "The map cannot place both Fusion units."
+        return nil, "this map has no hill spot for " .. Units.name(fusion.parents[1])
     end
 
-    local others = table.clone(team)
-    table.sort(others, function(a, b)
-        local farmA, farmB = Units.isFarm(a.unit_id), Units.isFarm(b.unit_id)
-        if farmA ~= farmB then return farmA end
-        return Units.score(a, level.mod) > Units.score(b, level.mod)
-    end)
+    local farms, others = {}, {}
+    local function sortIn(unit)
+        if used[unit.unit_id] then return end
+        used[unit.unit_id] = true
+        table.insert(Units.isFarm(unit.unit_id) and farms or others, unit)
+    end
+    for _, unit in ipairs(team) do sortIn(unit) end
+    if farmCount and roster then
+        for _, unit in ipairs(roster.farms) do sortIn(unit) end
+        for _, unit in ipairs(roster.attackers) do sortIn(unit) end
+    end
+    if farmCount then
+        while #farms > farmCount do table.remove(farms) end
+    end
+    -- Both Fusion units and Fused Hero deal physical damage: a physical buffer stays ahead of plain attackers.
+    local function weight(unit)
+        local buff = Units.allyBuff(unit.unit_id)
+        if buff then return buff.types.physical and math.huge or -1 end
+        local ok, score = pcall(Units.score, unit, level.mod)
+        return ok and score or 0
+    end
+    table.sort(others, function(a, b) return weight(a) > weight(b) end)
+    for _, unit in ipairs(farms) do
+        if #lineup < 6 then table.insert(lineup, unit) end
+    end
     for _, unit in ipairs(others) do
-        if #lineup >= 6 then break end
-        if not used[unit.unit_id] then
-            table.insert(lineup, unit)
-            used[unit.unit_id] = true
-        end
+        if #lineup < 6 then table.insert(lineup, unit) end
     end
     return lineup
 end
@@ -30510,15 +31234,20 @@ function Simulator.describeFusion(result)
     if not result.fusionLevels then return "Fusion was not available in this simulation" end
     local function progress(id)
         local level = result.fusionLevels[id]
-        return level and ("U" .. tostring(level) .. "/7") or "not placed"
+        return level and ("U" .. tostring(math.min(level, Units.FUSION.upgrade)) .. "/7") or "not placed"
     end
-    return "No fusion · Carrot " .. progress(Units.FUSION.parents[1]) .. " · Vego " .. progress(Units.FUSION.parents[2])
+    return "no fusion · Carrot " .. progress(Units.FUSION.parents[1]) .. " · Vego " .. progress(Units.FUSION.parents[2])
 end
 
 function Simulator.planTrace(label)
     Simulator.planSequence = (Simulator.planSequence or 0) + 1
     local id, started = Simulator.planSequence, Utils.now()
-    return function(message)
+    Simulator.progress = { label = label, text = "Started", frac = 0, started = started, at = started, running = true }
+    local progress = Simulator.progress
+    return function(message, quiet)
+        if not quiet then
+            progress.text, progress.at = message, Utils.now()
+        end
         App.log(1, "PLAN", string.format("#%d +%.1fs %s · %s", id, Utils.now() - started, label, message))
     end
 end
@@ -30531,13 +31260,116 @@ function Simulator.lineupNames(team)
     return #names > 0 and table.concat(names, ", ") or "none"
 end
 
-function Simulator.bestTeam(applyFx, arg2, pool, num, trace)
+-- Why a lineup plays the way it does, from what its own run bought: farms, the buffer, Fusion.
+function Simulator.whyLine(level, team, run)
+    local stats = run and run.stats or {
+    }
+    local farms, buffKinds, parts = 0, {
+    }, {
+    }
+    for _, unit in ipairs(team) do
+        if Units.isFarm(unit.unit_id) then
+            farms = farms + 1
+        end
+        local buff = Units.allyBuff(unit.unit_id)
+        for kind in pairs(buff and buff.types or {
+        }) do
+            if not table.find(buffKinds, kind) then
+                table.insert(buffKinds, kind)
+            end
+        end
+    end
+    if run and run.fusionWave then
+        table.insert(parts, "Fused Hero at wave " .. tostring(run.fusionWave) .. ((stats.saved or 0) > 0 and " (yen saved for it while the defense held)" or ""))
+    end
+    if farms > 0 then
+        local word = farms >= 2 and "two farms" or "one farm"
+        if (stats.farmKinds or 0) == 0 then
+            table.insert(parts, word .. " equipped, never bought: the defense needed the yen")
+        elseif stats.farmPaidWave then
+            table.insert(parts, string.format("%s by wave %d", (stats.farmKinds or 0) >= 2 and "two farms pay back" or "one farm pays back", stats.farmPaidWave))
+        else
+            table.insert(parts, string.format("farms earn back ¥%s of ¥%s", Utils.fmt(stats.farmEarned or 0), Utils.fmt(stats.farmSpent or 0)))
+        end
+    end
+    if # buffKinds > 0 then
+        table.sort(buffKinds)
+        local name = table.concat(buffKinds, "/")
+        if stats.buffWave and stats.buffShare then
+            table.insert(parts, string.format("%s buff from wave %d reaches %d%% of team damage (+%d%%)", name, stats.buffWave, math.floor(stats.buffShare * 100 + 0.5), math.floor((stats.buffGain or 0) * 100 + 0.5)))
+        elseif stats.buffWave then
+            table.insert(parts, name .. " buffer bought at wave " .. tostring(stats.buffWave))
+        else
+            table.insert(parts, name .. " buffer never bought: damage was worth more")
+        end
+    end
+    return # parts > 0 and table.concat(parts, " · ") or nil
+end
+
+-- One line for the log on a unit the player asked about: what the data confirms, what cannot be simulated.
+function Simulator.unitNote(id, pool, team)
+    local session = Core.session()
+    local owned = false
+    for _, unit in pairs(session and session.profile_data.collection.owned_units or {
+    }) do
+        if unit.unit_id == id then
+            owned = true
+            break
+        end
+    end
+    local name = Units.name(id)
+    if not Core.Units [id] then
+        return name .. " (" .. id .. "): not in the game's unit data"
+    end
+    if not owned then
+        return name .. " (" .. id .. "): not owned"
+    end
+    if Units.hidden(id) then
+        return name .. " (" .. id .. "): NOT TESTED · the game sends its upgrades only inside a match, so its strength is unknown here"
+    end
+    local effects = Units.effects(id)
+    local known = # effects.tags > 0 and table.concat(effects.tags, ", ") or "no team effect in the data the game sent (damage only)"
+    local unknown = # effects.unmodeled > 0 and (" · not simulated: " .. table.concat(effects.unmodeled, ", ")) or ""
+    local where = "not in the search pool (too weak a copy for this stage)"
+    for _, unit in ipairs(team or {
+    }) do
+        if unit.unit_id == id then
+            where = "in the planned lineup"
+        end
+    end
+    if where:find("^not") then
+        for _, unit in ipairs(pool or {
+        }) do
+            if unit.unit_id == id then
+                where = "tested by the search, another unit did better in its slot"
+            end
+        end
+        for _, unit in ipairs(pool and pool.rest or {
+        }) do
+            if unit.unit_id == id then
+                where = "in the reserve pool: only tried when it tops the weakest slot"
+            end
+        end
+    end
+    return string.format("%s (%s): %s%s · %s", name, id, known, unknown, where)
+end
+-- Units whose effects players ask about by name: always get a line in planner.log.
+Simulator.NAMED_SUPPORTS = {
+    "homura",
+    "homura_evolved"
+}
+
+function Simulator.bestTeam(applyFx, arg2, pool, num, trace, report)
     local now = Utils.now()
     num = num or 25
+    report = report or Simulator.newReport(applyFx, "")
+    local say = trace or function()
+    end
     local arg22 = table.clone(arg2)
-    if trace then trace("Finding the enemy-HP threshold for the current team") end
+    Simulator.stage(0.05)
+    say("Finding the enemy-HP threshold for the current team")
     local cliff, cliff2 = Simulator.cliff(applyFx, Simulator.teamFrom(arg22, applyFx.map))
-    if trace then trace(string.format("Stress threshold ×%.2f HP · wave %d", cliff, cliff2.wave or 0)) end
+    say(string.format("Stress threshold ×%.2f HP · wave %d", cliff, cliff2.wave or 0))
     local function helper(arg1)
         local count = 0
         for _, unitData in ipairs(arg1) do
@@ -30560,9 +31392,14 @@ function Simulator.bestTeam(applyFx, arg2, pool, num, trace)
         end
         return false
     end
+    local function withOpts(hpMul, extra)
+        local opts = { hpMul = hpMul }
+        for key, value in pairs(extra or {}) do opts[key] = value end
+        return opts
+    end
     local value
     while # arg22 < 6 do
-        if trace then trace(string.format("Testing eligible candidates for slot %d", #arg22 + 1)) end
+        say(string.format("Testing eligible candidates for slot %d", #arg22 + 1))
         local value2, value3
         for _, unitData in ipairs(pool) do
             if not hasUnitId(arg22, unitData.unit_id) then
@@ -30578,15 +31415,13 @@ function Simulator.bestTeam(applyFx, arg2, pool, num, trace)
         if not value2 then break end
         table.insert(arg22, value2)
     end
-    local function helper2(arg1, arg2)
+    local function helper2(arg1, arg2, extra)
         local teamFrom = Simulator.teamFrom(arg1, applyFx.map)
-        return (Simulator.objective(arg2) + Simulator.objective(Simulator.run(applyFx, teamFrom, {
-            hpMul = cliff * 0.92
-        })) + Simulator.objective(Simulator.run(applyFx, teamFrom, {
-            hpMul = cliff * 1.08
-        }))) / 3
+        return (Simulator.objective(arg2) + Simulator.objective(Simulator.run(applyFx, teamFrom, withOpts(cliff * 0.92, extra)))
+            + Simulator.objective(Simulator.run(applyFx, teamFrom, withOpts(cliff * 1.08, extra)))) / 3
     end
     local value2, score2 = value or cliff2, helper2(arg22, value or cliff2)
+    Simulator.stage(0.2)
     -- Multi-start: build synthetic meta/economy seeds from the pool to escape local optima
     do
         local farms, dpsPool, buffPool = {}, {}, {}
@@ -30637,35 +31472,367 @@ function Simulator.bestTeam(applyFx, arg2, pool, num, trace)
                     local avgObj = helper2(seed, res)
                     if isBetterObj(avgObj, score2, res, value2) then
                         arg22, value2, score2 = seed, res, avgObj
-                        if trace then trace("Synthetic seed ahead: " .. Simulator.lineupNames(seed)) end
+                        say("Synthetic seed ahead: " .. Simulator.lineupNames(seed), true)
                     end
                 end
             end
         end
     end
-    local fusionTeam, fusionReason = Simulator.fusionLineup(applyFx, arg22, pool)
-    local fusionRun
-    if trace then
-        trace(fusionTeam and ("Simulating Fusion lineup: " .. Simulator.lineupNames(fusionTeam)) or ("Fusion skipped: " .. tostring(fusionReason)))
+
+    -- Named lineups, compared on this map with the same buying rules: how many farms, which buffer.
+    local roster = Simulator.roster(pool, arg22, applyFx)
+    local short = report.short
+    local rows = {
+    }
+    local farmLock = false
+    local function measure(name, kind, team, extra)
+        local entries = Simulator.teamFrom(team, applyFx.map)
+        local normal = Simulator.run(applyFx, entries, withOpts(1, extra))
+        local stress = cliff == 1 and normal or Simulator.run(applyFx, entries, withOpts(cliff, extra))
+        local row = {
+            name = name,
+            kind = kind,
+            team = team,
+            run = normal,
+            stress = stress,
+            obj = Simulator.objective(stress),
+            extra = extra,
+            status = "worked"
+        }
+        table.insert(rows, row)
+        return row
     end
-    if fusionTeam then
-        local tested = Simulator.teamFrom(fusionTeam, applyFx.map)
-        local normal = Simulator.run(applyFx, tested, { hpMul = 1 })
-        if normal.fusionWave then
-            fusionRun = normal
-            local result = cliff == 1 and normal or Simulator.run(applyFx, tested, { hpMul = cliff })
-            local score = helper2(fusionTeam, result)
-            if isBetterObj(score, score2, result, value2) then
-                arg22, value2, score2 = fusionTeam, result, score
+    local function skip(name, kind, note)
+        table.insert(rows, {
+            name = name,
+            kind = kind,
+            status = "untested",
+            note = note
+        })
+    end
+    local function farmCountOf(team)
+        local count = 0
+        for _, unit in ipairs(team) do
+            if Units.isFarm(unit.unit_id) then
+                count = count + 1
             end
-            local message = string.format("Fusion: created at wave %d · reached wave %d · %s in the stress comparison",
-                normal.fusionWave, normal.wave or 0, arg22 == fusionTeam and "ahead" or "not ahead")
-            if trace then trace(message) else App.log(1, "SIM", message) end
-        else
-            local message = string.format("%s by wave %d · ¥%.0f left", Simulator.describeFusion(normal), normal.wave or 0, normal.money or 0)
-            if trace then trace(message) else App.log(1, "SIM", message) end
+        end
+        return count
+    end
+    do
+        local buffOptions = {
+            false
+        }
+        local bestByKind = {
+        }
+        for _, unit in ipairs(roster.buffers) do
+            local buff = Units.allyBuff(unit.unit_id)
+            for kind, rate in pairs(buff.types or {
+            }) do
+                local power = (tonumber(rate) or 0) * (buff.uptime or 0)
+                if not bestByKind [kind] or power > bestByKind [kind].power then
+                    bestByKind [kind] = {
+                        kind = kind,
+                        buffer = unit,
+                        power = power,
+                        matched = 0,
+                        weight = 0
+                    }
+                end
+            end
+        end
+        for _, unit in ipairs(roster.attackers) do
+            local _, base = Units.types(unit.unit_id)
+            local option = bestByKind [base]
+            if option then
+                option.matched = option.matched + 1
+                option.weight = option.weight + (roster.rank [unit] or 0)
+            end
+        end
+        local kinds = {
+        }
+        for _, option in pairs(bestByKind) do
+            table.insert(kinds, option)
+        end
+        table.sort(kinds, function(a, b)
+            if a.weight ~= b.weight then
+                return a.weight > b.weight
+            end
+            return a.kind < b.kind
+        end)
+        for index = 1, math.min(2, # kinds) do
+            table.insert(buffOptions, kinds [index])
+        end
+        for index = 3, # kinds do
+            skip(kinds [index].kind .. " buffer", "mix", "only the two buff types with the most matching damage are compared")
+        end
+        local farmCounts = short and {
+            2,
+            1,
+            0
+        } or {
+            0,
+            1,
+            2
+        }
+        local total, index, measured = # farmCounts * # buffOptions, 0, 0
+        for _, farmCount in ipairs(farmCounts) do
+            for _, option in ipairs(buffOptions) do
+                index = index + 1
+                local name = (farmCount == 0 and "no farms" or farmCount == 1 and "1 farm" or "2 farms") .. (option and (" + " .. option.kind .. " buffer") or ", no buffer")
+                if farmCount > 0 and Config.farmUnits == false then
+                    skip(name, "mix", "Farm Units is switched off")
+                elseif farmCount > # roster.farms then
+                    skip(name, "mix", string.format("only %d farm unit%s owned", # roster.farms, # roster.farms == 1 and "" or "s"))
+                elseif option and Config.actives == false then
+                    skip(name, "mix", "Auto Abilities is off, so the buff is never cast")
+                elseif option and option.matched < 2 then
+                    skip(name, "mix", string.format("only %d attacker%s deal%s %s damage", option.matched, option.matched == 1 and "" or "s", option.matched == 1 and "s" or "", option.kind))
+                elseif measured >= 3 and Utils.now() - now > num * 0.6 then
+                    skip(name, "mix", "the search's time budget ran out first")
+                else
+                    local team = Simulator.compose(roster, farmCount, option and option.buffer, option and option.kind)
+                    if helper(team) < 1 then
+                        skip(name, "mix", "no attacker is left for this lineup")
+                    else
+                        Simulator.stage(0.2 + 0.3 * index / total)
+                        say(string.format("Comparing lineup %d of %d: %s", index, total, name))
+                        local row = measure(name, "mix", team)
+                        row.farms, row.buff = farmCountOf(team), option
+                        measured = measured + 1
+                    end
+                end
+            end
+        end
+        local topWave = 0
+        for _, row in ipairs(rows) do
+            if row.run then
+                topWave = math.max(topWave, row.run.wave or 0)
+            end
+        end
+        for _, row in ipairs(rows) do
+            local stats = row.run and row.run.stats or {
+            }
+            if row.run and row.buff then
+                if not stats.buffWave then
+                    row.status, row.note = "failed", "the buffer was never bought in the simulation: damage was always worth more"
+                elseif short and stats.buffWave > math.ceil(applyFx.total / 2) then
+                    row.status, row.note = "failed", string.format("the buffer first comes up at wave %d of %d: too late for a short mode", stats.buffWave, applyFx.total)
+                end
+            end
+            if row.run and row.status ~= "failed" then
+                row.note = Simulator.whyLine(applyFx, row.team, row.run)
+            end
+            if row.run and (row.farms or 0) > 0 then
+                if (stats.farmKinds or 0) < row.farms then
+                    row.farmOk, row.farmNote = false, string.format("only %d of %d farm units were ever bought: the defense needed the yen", stats.farmKinds or 0, row.farms)
+                elseif not stats.farmPaidWave then
+                    row.farmOk, row.farmNote = false, string.format("the farms earn back ¥%s of the ¥%s they cost: no time to pay back", Utils.fmt(stats.farmEarned or 0), Utils.fmt(stats.farmSpent or 0))
+                else
+                    row.farmOk, row.farmNote = true, string.format("%s by wave %d", row.farms >= 2 and "two farms pay back" or "one farm pays back", stats.farmPaidWave)
+                end
+            end
+        end
+        local function bestOf(filter)
+            local best
+            for _, row in ipairs(rows) do
+                if row.run and row.status ~= "failed" and (not filter or filter(row)) and (not best or row.obj > best.obj) then
+                    best = row
+                end
+            end
+            return best
+        end
+        local top = bestOf()
+        local pick, priority = top, nil
+        if short and top then
+            -- Short modes: two farms go first when they pay back and the defense holds; then one; then none.
+            for _, wanted in ipairs({
+                2,
+                1
+            }) do
+                local best = bestOf(function(row)
+                    return row.farms == wanted and row.farmOk and (row.run.won or (row.run.wave or 0) >= topWave)
+                end)
+                if best and best.obj >= top.obj - Simulator.FARM_SLACK then
+                    pick, priority = best, best.farmNote .. " and the team holds the waves"
+                    break
+                end
+                for _, row in ipairs(rows) do
+                    if row.run and row.farms == wanted and row.status ~= "failed" then
+                        if not row.farmOk then
+                            row.status, row.note = "failed", row.farmNote
+                        elseif not (row.run.won or (row.run.wave or 0) >= topWave) then
+                            row.status, row.note = "failed", string.format("the base falls at wave %d while the farms are being paid for", row.run.wave or 0)
+                        else
+                            row.note = row.farmNote .. ", but \"" .. top.name .. "\" holds more enemy HP"
+                        end
+                    end
+                end
+            end
+        end
+        if pick then
+            report.priority = priority
+            local same = Simulator.profileSig(pick.team) == Simulator.profileSig(arg22)
+            local adopt = same
+            if not same then
+                if priority then
+                    adopt = pick.obj >= Simulator.objective(value2) - Simulator.FARM_SLACK
+                else
+                    adopt = isBetterObj(helper2(pick.team, pick.stress), score2, pick.stress, value2)
+                end
+                if adopt then
+                    arg22, value2, score2 = pick.team, pick.stress, helper2(pick.team, pick.stress)
+                else
+                    pick.note = (pick.note and (pick.note .. " · ") or "") .. "the unit-by-unit search holds more enemy HP"
+                    report.priority = nil
+                end
+            end
+            farmLock = adopt and priority ~= nil
         end
     end
+
+    -- Supports with effects the data confirms: each gets a real run in place of the weakest attacker.
+    Simulator.stage(0.55)
+    do
+        local tried = 0
+        for _, unit in ipairs(roster.supports) do
+            local id = unit.unit_id
+            local effects = Units.effects(id)
+            local line = {
+                name = Units.name(id),
+                id = id,
+                effects = table.concat(effects.tags, ", "),
+                unmodeled = # effects.unmodeled > 0 and table.concat(effects.unmodeled, ", ") or nil
+            }
+            table.insert(report.supports, line)
+            if hasUnitId(arg22, id) then
+                line.status, line.note = "chosen", "already in the leading lineup"
+            elseif tried >= Simulator.SUPPORT_TRIES then
+                line.status, line.note = "untested", string.format("only the %d strongest effects get a run of their own", Simulator.SUPPORT_TRIES)
+            elseif tried >= 1 and Utils.now() - now > num * 0.7 then
+                line.status, line.note = "untested", "the search's time budget ran out first"
+            else
+                tried = tried + 1
+                local slot, lowest
+                for index, member in ipairs(arg22) do
+                    if not Units.isFarm(member.unit_id) and not Units.allyBuff(member.unit_id) and not Units.FUSION.attacks [member.unit_id] then
+                        local score = roster.rank [member] or 0
+                        if not lowest or score < lowest then
+                            slot, lowest = index, score
+                        end
+                    end
+                end
+                if not slot then
+                    line.status, line.note = "untested", "no attacker slot to give up"
+                else
+                    local team = table.clone(arg22)
+                    local out = team [slot]
+                    team [slot] = unit
+                    say(string.format("Testing support %s in place of %s", line.name, Units.name(out.unit_id)))
+                    local row = measure(line.name .. " instead of " .. Units.name(out.unit_id), "support", team)
+                    row.farms = farmCountOf(team)
+                    local before = value2
+                    if row.obj > Simulator.objective(before) + 0.05 and isBetterObj(helper2(team, row.stress), score2, row.stress, before) then
+                        arg22, value2, score2 = team, row.stress, helper2(team, row.stress)
+                        line.status = "chosen"
+                        line.note = string.format("holds wave %d against ×%.1f HP, %s held wave %d", row.stress.wave or 0, cliff, Units.name(out.unit_id), before.wave or 0)
+                    elseif row.stress.won == before.won and (row.stress.wave or 0) >= (before.wave or 0) then
+                        line.status = "worked"
+                        line.note = string.format("as good as %s (wave %d against ×%.1f HP), but not better: the attacker stays", Units.name(out.unit_id), row.stress.wave or 0, cliff)
+                    else
+                        line.status = "failed"
+                        line.note = string.format("wave %d against ×%.1f HP, %s reaches wave %d: its effect does not replace that damage here", row.stress.wave or 0, cliff, Units.name(out.unit_id), before.wave or 0)
+                    end
+                    row.status, row.note = line.status == "chosen" and "worked" or line.status, line.note
+                end
+            end
+        end
+    end
+
+    -- Carrot + Vego: always at least one full lineup, with regular buying and with yen saved for the pair.
+    Simulator.stage(0.6)
+    local fusion = report.fusion
+    do
+        local fusionTeam, reason = Simulator.fusionLineup(applyFx, arg22, pool)
+        if not fusionTeam then
+            fusion.status, fusion.note = "untested", reason
+        else
+            local variants, seen = {
+            }, {
+            }
+            local function addVariant(team)
+                if team and not seen [Simulator.sig(team)] then
+                    seen [Simulator.sig(team)] = true
+                    table.insert(variants, team)
+                end
+            end
+            addVariant(fusionTeam)
+            for _, farmCount in ipairs(short and {
+                2,
+                1,
+                0
+            } or {
+                1,
+                0,
+                2
+            }) do
+                if # variants < 3 and farmCount <= # roster.farms then
+                    addVariant((Simulator.fusionLineup(applyFx, arg22, pool, farmCount, roster)))
+                end
+            end
+            local best, closest
+            for index, team in ipairs(variants) do
+                if index > 1 and Utils.now() - now > num * 0.85 then
+                    skip("Fusion lineup " .. index, "fusion", "the search's time budget ran out first")
+                else
+                    for _, save in ipairs({
+                        false,
+                        true
+                    }) do
+                        Simulator.stage(0.6 + 0.15 * index / # variants)
+                        say(string.format("Fusion lineup %d of %d, %s: %s", index, # variants, save and "saving yen for the pair" or "regular buying", Simulator.lineupNames(team)))
+                        local row = measure(string.format("Fusion, %d farm%s, %s", farmCountOf(team), farmCountOf(team) == 1 and "" or "s", save and "saving for the pair" or "regular buying"), "fusion", team, save and {
+                            fusionSave = true
+                        } or nil)
+                        row.save, row.farms = save, farmCountOf(team)
+                        local stats = row.run.stats or {
+                        }
+                        fusion.cost = stats.fusionCost or fusion.cost
+                        if row.run.fusionWave then
+                            row.note = string.format("Fused Hero at wave %d · the team %s", row.run.fusionWave, row.run.won and "clears the mode" or ("reaches wave " .. tostring(row.run.wave)))
+                            local normalObj = Simulator.objective(row.run)
+                            if not best or normalObj > best.normalObj + 0.05 or (math.abs(normalObj - best.normalObj) <= 0.05 and row.obj > best.obj) then
+                                best = row
+                                best.normalObj = normalObj
+                            end
+                        else
+                            row.status = "failed"
+                            row.note = string.format("%s by wave %d of %d", Simulator.describeFusion(row.run), row.run.wave or 0, applyFx.total)
+                            local levels = row.run.fusionLevels or {
+                            }
+                            local reach = (levels [Units.FUSION.parents [1]] or 0) + (levels [Units.FUSION.parents [2]] or 0)
+                            if not closest or reach > closest.reach then
+                                closest = row
+                                closest.reach = reach
+                            end
+                        end
+                    end
+                end
+            end
+            if best then
+                fusion.status, fusion.team, fusion.run, fusion.opts, fusion.save = "worked", best.team, best.run, best.extra, best.save
+                fusion.stress, fusion.row = best.stress, best
+                fusion.note = best.note .. (best.save and " · yen is saved for the pair while the defense holds" or " · regular buying")
+            else
+                fusion.status = "failed"
+                fusion.team, fusion.run = closest and closest.team, closest and closest.run
+                fusion.note = (closest and closest.note or "no fusion in the simulation") .. (fusion.cost and string.format(" · the pair needs ¥%s for both placements and both upgrade 7s", Utils.fmt(fusion.cost)) or "")
+            end
+        end
+    end
+
+    Simulator.stage(0.75)
+    local outOfTime = false
     if type(pool.rest) == "table" and # pool.rest > 0 then
         local value, value2
         for i, unitData in ipairs(arg22) do
@@ -30704,34 +31871,44 @@ function Simulator.bestTeam(applyFx, arg2, pool, num, trace)
         end
     end
     for i = 1, 2 do
-        if trace then trace(string.format("Testing substitutions, pass %d of 2", i)) end
+        if outOfTime then
+            break
+        end
+        say(string.format("Testing substitutions, pass %d of 2", i))
         local flag = false
         for i = 1, # arg22 do
-            for _, unit in ipairs(pool) do
-                if Utils.now() - now > num then
-                    if trace then trace("Substitution budget reached; comparing the finalists found so far") end
-                    return arg22, value2, cliff, cliff2, fusionRun and fusionTeam or nil, fusionRun
-                end
-                local flag2 = false
-                for i2, unitData in ipairs(arg22) do
-                    if i2 ~= i and unitData.unit_id == unit.unit_id then
-                        flag2 = true
+            if outOfTime then
+                break
+            end
+            -- A lineup picked for its farms keeps them: only its other slots are searched.
+            if not (farmLock and Units.isFarm(arg22 [i].unit_id)) then
+                for _, unit in ipairs(pool) do
+                    if Utils.now() - now > num then
+                        say("Substitution budget reached; comparing the finalists found so far")
+                        outOfTime = true
                         break
                     end
-                end
-                if not flag2 and unit.uuid ~= arg22[i].uuid then
-                    local arg222 = table.clone(arg22)
-                    arg222 [i] = unit
-                    if helper(arg222) >= 1 then
-                        local value = Simulator.run(applyFx, Simulator.teamFrom(arg222, applyFx.map), {
-                            hpMul = cliff
-                        })
-                        local objective = Simulator.objective(value)
-                        local curSingleObj = Simulator.objective(value2)
-                        if objective > math.min(score2, curSingleObj) + 0.05 or isBetterObj(objective, curSingleObj, value, value2) then
-                            objective = helper2(arg222, value)
-                            if isBetterObj(objective, score2, value, value2) then
-                                arg22, score2, value2, flag = arg222, objective, value, true
+                    local flag2 = false
+                    for i2, unitData in ipairs(arg22) do
+                        if i2 ~= i and unitData.unit_id == unit.unit_id then
+                            flag2 = true
+                            break
+                        end
+                    end
+                    if not flag2 and unit.uuid ~= arg22[i].uuid then
+                        local arg222 = table.clone(arg22)
+                        arg222 [i] = unit
+                        if helper(arg222) >= 1 then
+                            local value = Simulator.run(applyFx, Simulator.teamFrom(arg222, applyFx.map), {
+                                hpMul = cliff
+                            })
+                            local objective = Simulator.objective(value)
+                            local curSingleObj = Simulator.objective(value2)
+                            if objective > math.min(score2, curSingleObj) + 0.05 or isBetterObj(objective, curSingleObj, value, value2) then
+                                objective = helper2(arg222, value)
+                                if isBetterObj(objective, score2, value, value2) then
+                                    arg22, score2, value2, flag = arg222, objective, value, true
+                                end
                             end
                         end
                     end
@@ -30742,8 +31919,9 @@ function Simulator.bestTeam(applyFx, arg2, pool, num, trace)
             break
         end
     end
+    Simulator.stage(0.92)
     -- 2-opt synergy pair swaps (e.g. Buffer+DPS, Farm+Carry) when time budget remains
-    if #arg22 >= 4 and Utils.now() - now < num * 0.8 then
+    if not outOfTime and #arg22 >= 4 and Utils.now() - now < num * 0.8 then
         local rankedSlots = {}
         for idx, unit in ipairs(arg22) do
             local okS, sc = pcall(Units.score, unit, applyFx.mod)
@@ -30778,13 +31956,149 @@ function Simulator.bestTeam(applyFx, arg2, pool, num, trace)
                     local avgObj = helper2(candTeam, res)
                     if isBetterObj(avgObj, score2, res, value2) then
                         arg22, score2, value2 = candTeam, avgObj, res
-                        if trace then trace("Synergy pair improved lineup: " .. Units.name(pair[1].unit_id) .. " + " .. Units.name(pair[2].unit_id)) end
+                        say("Synergy pair improved lineup: " .. Units.name(pair[1].unit_id) .. " + " .. Units.name(pair[2].unit_id), true)
                     end
                 end
             end
         end
     end
-    return arg22, value2, cliff, cliff2, fusionRun and fusionTeam or nil, fusionRun
+
+    -- A farm or buffer the simulation never buys only takes a slot away. Each one is swapped for the
+    -- strongest unused attacker when that holds as much enemy HP (within the farm slack).
+    do
+        local normal = Simulator.run(applyFx, Simulator.teamFrom(arg22, applyFx.map), { hpMul = 1 })
+        local stressed = cliff == 1 and normal or Simulator.run(applyFx, Simulator.teamFrom(arg22, applyFx.map), { hpMul = cliff })
+        report.idle = {
+        }
+        for index = # arg22, 1, - 1 do
+            local unit = arg22 [index]
+            local id = unit.unit_id
+            local bought = (normal.stats and normal.stats.placedWave [id]) or (stressed.stats and stressed.stats.placedWave [id])
+            if not bought and (Units.isFarm(id) or Units.allyBuff(id)) then
+                -- In a short mode a farm that cannot pay back is certain to stay unbought, so its slot goes to
+                -- the spare attacker that still gets the same result at normal HP; elsewhere the swap must
+                -- also hold about as much enemy HP.
+                local certain = short and Units.isFarm(id)
+                local swapped, best
+                local tries = 0
+                for _, spare in ipairs(roster.attackers) do
+                    if tries >= 4 or Utils.now() - now > num * 1.2 then
+                        break
+                    end
+                    if not hasUnitId(arg22, spare.unit_id) then
+                        tries = tries + 1
+                        local team = table.clone(arg22)
+                        team [index] = spare
+                        local entries = Simulator.teamFrom(team, applyFx.map)
+                        local res = Simulator.run(applyFx, entries, { hpMul = cliff })
+                        local plain = cliff == 1 and res or Simulator.run(applyFx, entries, { hpMul = 1 })
+                        if plain.won == normal.won and (plain.wave or 0) >= (normal.wave or 0) then
+                            local objective = Simulator.objective(res)
+                            if (certain or objective >= Simulator.objective(value2) - 10) and (not best or objective > best.objective) then
+                                best = { team = team, res = res, plain = plain, spare = spare, objective = objective }
+                            end
+                            if not certain and best then
+                                break
+                            end
+                        end
+                    end
+                end
+                if best then
+                    arg22, value2, score2, swapped, normal = best.team, best.res, helper2(best.team, best.res), best.spare, best.plain
+                end
+                table.insert(report.idle, string.format("%s was never bought in the simulation: %s", Units.name(id), swapped and ("its slot goes to " .. Units.name(swapped.unit_id)) or "kept only because no spare attacker does as well"))
+            end
+        end
+    end
+    -- What was compared, for the log and the planner view.
+    local finalSig, named = Simulator.profileSig(arg22), false
+    for _, row in ipairs(rows) do
+        if row.team and row.kind ~= "fusion" and row.status ~= "failed" and Simulator.profileSig(row.team) == finalSig then
+            row.status, named = "chosen", true
+            row.note = Simulator.whyLine(applyFx, row.team, row.run) or row.note
+        end
+    end
+    if not named then
+        local normal = Simulator.run(applyFx, Simulator.teamFrom(arg22, applyFx.map), { hpMul = 1 })
+        table.insert(rows, {
+            name = "unit-by-unit search",
+            kind = "search",
+            team = arg22,
+            run = normal,
+            stress = value2,
+            status = "chosen",
+            note = "found by swapping single units, it holds the most enemy HP"
+        })
+    end
+    report.regular = arg22
+    for _, line in ipairs(report.supports) do
+        local kept = hasUnitId(arg22, line.id)
+        if line.status == "chosen" and not kept then
+            line.status = "worked"
+            line.note = "was in the leading lineup, then a swap in its slot held more enemy HP"
+        elseif kept and line.status ~= "chosen" then
+            line.status, line.note = "chosen", "a later swap brought it into the final lineup"
+        end
+    end
+    for _, row in ipairs(rows) do
+        local entry = {
+            name = row.name,
+            kind = row.kind,
+            status = row.status,
+            note = row.note,
+            team = row.team and Simulator.lineupNames(row.team) or nil,
+            wave = row.run and row.run.wave or nil,
+            won = row.run and row.run.won or nil,
+            fusionWave = row.run and row.run.fusionWave or nil
+        }
+        if row.status == "worked" and not entry.note then
+            entry.note = "plays, but holds less enemy HP than the chosen lineup"
+        end
+        table.insert(report.rows, entry)
+        row.entry = entry
+    end
+    Simulator.stage(0.95)
+    if fusion.status == "worked" then
+        return arg22, value2, cliff, cliff2, fusion.team, fusion.run, fusion.opts
+    end
+    return arg22, value2, cliff, cliff2, nil, nil, nil
+end
+
+-- The comparison as lines for planner.log: every lineup with what happened to it.
+function Simulator.reportLines(report, level)
+    local lines = {
+    }
+    table.insert(lines, string.format("Compared %d lineups on %s (%s, %s waves):", # report.rows, tostring(report.map), report.endless and "Infinite" or (report.short and "short mode" or "long mode"), report.endless and "no end" or tostring(report.total)))
+    for _, row in ipairs(report.rows) do
+        local result = row.wave and (row.won and string.format(" → clears %d/%d", row.wave, level.total) or string.format(" → wave %d", row.wave)) or ""
+        table.insert(lines, string.format("  [%s] %s%s%s%s", Simulator.STATUS [row.status] or tostring(row.status), row.name, row.team and (": " .. row.team) or "", result, row.note and (" · " .. row.note) or ""))
+    end
+    local function farmLine(count, word)
+        local best
+        for _, row in ipairs(report.rows) do
+            if row.kind == "mix" and row.name:find(word, 1, true) == 1 and (not best or (best.status == "untested" and row.status ~= "untested") or row.status == "chosen") then
+                best = row
+            end
+        end
+        return best and string.format("%s: %s%s", word, Simulator.STATUS [best.status], best.note and (" (" .. best.note .. ")") or "") or (word .. ": NOT TESTED")
+    end
+    table.insert(lines, "Farms · " .. farmLine(2, "2 farms") .. " · " .. farmLine(1, "1 farm") .. " · " .. farmLine(0, "no farms"))
+    if report.priority then
+        table.insert(lines, "Short-mode rule applied: " .. report.priority)
+    elseif report.short then
+        table.insert(lines, "Short-mode rule: two farms did not pass (pay back + hold the waves), so lineups were compared on enemy HP held")
+    else
+        table.insert(lines, "Infinite/long mode: no farm rule, the lineup that lasts longest wins whatever its farm count")
+    end
+    for _, line in ipairs(report.supports) do
+        table.insert(lines, string.format("Support · %s (%s): %s%s · [%s] %s", line.name, line.id, line.effects ~= "" and line.effects or "no confirmed effect", line.unmodeled and (" · not simulated: " .. line.unmodeled) or "", Simulator.STATUS [line.status] or "?", line.note or ""))
+    end
+    for _, text in ipairs(report.idle or {
+    }) do
+        table.insert(lines, "Idle slot · " .. text)
+    end
+    table.insert(lines, string.format("Fusion · [%s] %s", Simulator.STATUS [report.fusion.status] or "?", tostring(report.fusion.note)))
+    return lines
 end
 
 function Simulator.evolutions()
@@ -30888,36 +32202,122 @@ function Simulator.levelFor(mode)
     end
 end
 
-function Simulator.testNamekFusion()
-    local trace = Simulator.planTrace("Namek Infinite / Fusion test")
-    trace("Started")
-    if App.where ~= "lobby" then return "Run the Fusion forecast in the lobby." end
-    local session = Core.session()
-    if not (session and session.profile_data and session.collection) then
-        return "Game profile is still loading."
+function Simulator.slots(team)
+    local slots = {
+    }
+    for index, unit in ipairs(team) do
+        slots [index] = {
+            name = Units.name(unit.unit_id),
+            role = Units.roleName(unit.unit_id)
+        }
     end
-    local mode = { key = "inf:namek_infinite", kind = "infinite", level = "namek_infinite", diff = "Hard" }
-    local ld, challenge = Simulator.levelFor(mode)
-    if not ld then return "Namek Infinite data is unavailable." end
-    local levelMod = Modes.levelMod(mode.level)
-    local level = Simulator.info(ld, mode.key, challenge, levelMod)
-    local equipped = {}
-    for _, unit in ipairs(Units.equipped()) do table.insert(equipped, unit.u) end
-    local lineup, reason = Simulator.fusionLineup(level, equipped, Simulator.pool(levelMod, level))
-    if not lineup then trace("Fusion skipped: " .. reason) return reason end
-
-    trace("Simulating Fusion lineup: " .. Simulator.lineupNames(lineup))
-    local result = Simulator.run(level, Simulator.teamFrom(lineup, level.map), { hpMul = 1 })
-    trace("Simulating equipped lineup: " .. Simulator.lineupNames(equipped))
-    local baseline = Simulator.run(level, Simulator.teamFrom(equipped, level.map), { hpMul = 1 })
-    trace(string.format("Finished · current wave %d · Fusion lineup wave %d · fusion wave %s",
-        baseline.wave or 0, result.wave or 0, tostring(result.fusionWave or "none")))
-    trace(Simulator.describeFusion(result))
-    return string.format("Namek Infinite · current team reaches wave %d · Fusion team reaches wave %d · %s",
-        baseline.wave or 0, result.wave or 0, Simulator.describeFusion(result))
+    return slots
 end
 
-function Simulator.compareTeams(level, current, proposed, currentRun, proposedRun)
+function Simulator.finishProgress()
+    if Simulator.progress then
+        Simulator.progress.running, Simulator.progress.frac, Simulator.progress.at = false, 1, Utils.now()
+    end
+end
+
+-- Lines for planner.log about units players ask for by name (Homura and her evolved form).
+function Simulator.namedNotes(pool, team)
+    local lines, owned = {
+    }, false
+    local session = Core.session()
+    for _, id in ipairs(Simulator.NAMED_SUPPORTS) do
+        for _, unit in pairs(session and session.profile_data.collection.owned_units or {
+        }) do
+            if unit.unit_id == id then
+                owned = true
+                table.insert(lines, "Unit check · " .. Simulator.unitNote(id, pool, team))
+                break
+            end
+        end
+    end
+    if not owned then
+        table.insert(lines, "Unit check · Homura (ids homura, homura_evolved): not owned, so not planned")
+    end
+    return lines
+end
+
+-- Current team, the best regular lineup and the Fusion lineup on one map under the same rules.
+function Simulator.compareFusion(mode, label)
+    local trace = Simulator.planTrace(label .. " / Fusion comparison")
+    local function fail(message)
+        trace("Stopped: " .. message)
+        Simulator.finishProgress()
+        return nil, message
+    end
+    if App.where ~= "lobby" then return fail("Run the Fusion comparison in the lobby.") end
+    local session = Core.session()
+    if not (session and session.profile_data and session.collection) then
+        return fail("Game profile is still loading.")
+    end
+    local ld, challenge = Simulator.levelFor(mode)
+    if not ld then return fail(label .. " data is unavailable.") end
+    local levelMod = Modes.levelMod(mode.level)
+    local level = Simulator.info(ld, mode.key, challenge, levelMod)
+    level._memoKey = "fusion-test:" .. tostring(mode.key) .. ":" .. tostring(level.map)
+    local equipped = {}
+    for _, unit in ipairs(Units.equipped()) do table.insert(equipped, unit.u) end
+    if #equipped == 0 then return fail("Equip at least one unit first.") end
+    Simulator.memoOn()
+    local ok, result = pcall(function()
+        local report = Simulator.newReport(level, label)
+        trace("Simulating the equipped lineup: " .. Simulator.lineupNames(equipped))
+        local currentRun = Simulator.run(level, Simulator.teamFrom(equipped, level.map), { hpMul = 1 })
+        local pool = Simulator.pool(levelMod, level)
+        local best = Simulator.bestTeam(level, equipped, pool, 30, trace, report)
+        local regularRun = Simulator.run(level, Simulator.teamFrom(best, level.map), { hpMul = 1 })
+        local function side(title, team, run)
+            return {
+                title = title, names = Simulator.lineupNames(team), slots = Simulator.slots(team),
+                wave = run.wave, won = run.won, fusionWave = run.fusionWave,
+                progress = run.fusionLevels and Simulator.describeFusion(run) or nil,
+                why = Simulator.whyLine(level, team, run),
+            }
+        end
+        local out = {
+            label = label, total = level.total, endless = report.endless,
+            current = side("Current team", equipped, currentRun),
+            regular = side("Best regular lineup", best, regularRun),
+            fusionStatus = report.fusion.status, fusionNote = report.fusion.note, save = report.fusion.save,
+        }
+        if report.fusion.team and report.fusion.run then
+            out.fusion = side("Fusion lineup", report.fusion.team, report.fusion.run)
+        end
+        for _, line in ipairs(Simulator.reportLines(report, level)) do trace(line, true) end
+        return out
+    end)
+    Simulator.memo = nil
+    Simulator.finishProgress()
+    if not ok then
+        trace("Stopped: " .. tostring(result))
+        return nil, tostring(result)
+    end
+    trace(string.format("Finished · current wave %d · best regular wave %d · Fusion: %s",
+        result.current.wave or 0, result.regular.wave or 0,
+        result.fusion and (result.fusion.fusionWave and ("fused at wave " .. result.fusion.fusionWave .. ", reaches wave " .. tostring(result.fusion.wave)) or tostring(result.fusion.progress)) or tostring(result.fusionNote)))
+    return result
+end
+
+function Simulator.testNamekFusion()
+    return Simulator.compareFusion({ key = "inf:namek_infinite", kind = "infinite", level = "namek_infinite", diff = "Hard" }, "Namek Infinite")
+end
+
+-- How one side of a comparison ended, in a few words.
+function Simulator.sideText(side, total, endless)
+    if not side then return "not simulated" end
+    local result = side.won and (endless and string.format("lasts past wave %d", side.wave or 0) or string.format("clears all %d waves", total or side.wave or 0))
+        or string.format("reaches wave %d", side.wave or 0)
+    local fusion = side.fusionWave and (" · Fused Hero at wave " .. tostring(side.fusionWave)) or (side.progress and (" · " .. side.progress) or "")
+    return result .. fusion
+end
+
+function Simulator.compareTeams(level, current, proposed, currentRun, proposedRun, options)
+    options = options or {
+    }
     if currentRun.won ~= proposedRun.won then
         return proposedRun.won, proposedRun.won and "proposed team clears at normal HP" or "proposed team loses at normal HP"
     end
@@ -30925,15 +32325,19 @@ function Simulator.compareTeams(level, current, proposed, currentRun, proposedRu
         local better = proposedRun.wave > currentRun.wave
         return better, string.format("normal HP: proposed wave %d, current wave %d", proposedRun.wave, currentRun.wave)
     end
-    local currentWins, currentWaves = Simulator.exam(level, current)
-    local proposedWins, proposedWaves = Simulator.exam(level, proposed)
+    local currentWins, currentWaves = Simulator.exam(level, current, options.currentOpts)
+    local proposedWins, proposedWaves = Simulator.exam(level, proposed, options.proposedOpts)
     if proposedWins ~= currentWins or math.abs(proposedWaves - currentWaves) > 0.001 then
         local better = proposedWins > currentWins or (proposedWins == currentWins and proposedWaves > currentWaves)
         return better, string.format("stress test: proposed %d wins and %.1f wave points, current %d wins and %.1f wave points",
             proposedWins, proposedWaves, currentWins, currentWaves)
     end
+    if options.prefer then
+        -- Same result at normal HP and under stress: the short-mode rule decides, not a few seconds.
+        return true, options.prefer
+    end
     if currentRun.won and proposedRun.won then
-        local saved = currentRun.seconds - proposedRun.t
+        local saved = (currentRun.seconds or currentRun.t) - proposedRun.t
         if math.abs(saved) >= math.max(5, currentRun.seconds * 0.03) then
             return saved > 0, string.format("same clear and stress result: proposed %.0fs, current %.0fs", proposedRun.t, currentRun.seconds)
         end
@@ -30950,12 +32354,14 @@ function Simulator.plan(mode, arg2, arg3, arg4, freshSearch)
     end
     if not levelFor then
         if trace then trace("Stopped: level data is unavailable") end
+        Simulator.finishProgress()
         return nil
     end
     local mod = mode.mod or (mode.kind == "daily" and Brain.live.daily and Brain.live.daily.mod) or Modes.levelMod(mode.level)
     local rotation = Modes.rotation(mode)
     local info = Simulator.info(levelFor, mode.key, levelFor2, mod, rotation)
     info._memoKey = tostring(mode.key) .. ":" .. tostring(rotation or "") .. ":" .. tostring(info.map)
+    local report = Simulator.newReport(info, tostring(mode.label or mode.key))
     local arg42 = arg4
     if not arg42 then
         arg42 = {
@@ -31036,10 +32442,29 @@ function Simulator.plan(mode, arg2, arg3, arg4, freshSearch)
                     at = os.time(),
                     label = mode.label,
                     base = evaluate.sig,
-                    why = "the team that won here last run, no search"
+                    why = "the team that won here last run, no search",
+                    whyShort = "won here last run with this team",
+                    view = {
+                        label = mode.label,
+                        map = tostring(info.map),
+                        total = info.total,
+                        endless = report.endless,
+                        short = report.short,
+                        current = Simulator.slots(arg42),
+                        currentWave = evaluate.wave,
+                        currentWon = evaluate.won,
+                        planned = Simulator.slots(list),
+                        plannedWave = info.total,
+                        plannedWon = true,
+                        better = rec.winProfile ~= profile,
+                        why = "won here last run with this team (no new search)",
+                        rows = {
+                        }
+                    }
                 }
                 App.log(1, "SIM", string.format("%s: the team that won here last run plays again (%s): %s, and real runs won %d in a row", mode.label, table.concat(list2, ", "), flag and string.format((trust.ratio or 0) < 0.1 and "the simulator is off ×%.2f against real runs here" or "the simulator is off ×%.1f against real runs here", trust.ratio or 0) or (simResult.won and "the simulator also predicts a win" or string.format("the simulator calls it a loss at wave %d", simResult.wave)), rec.winTeamN or 1))
                 if trace then trace("Finished: selected a team with a recorded real win") end
+                Simulator.finishProgress()
                 return evaluate
             end
         end
@@ -31048,36 +32473,100 @@ function Simulator.plan(mode, arg2, arg3, arg4, freshSearch)
         if trace then trace("Reading the unit collection and ranking candidates") end
         local pool = Simulator.pool(mod, info)
         if trace then trace(string.format("Pool: %d priority candidates · %d reserve candidates", #pool, #(pool.rest or {}))) end
-        local ok, res, res2, res3, res32, fusionTeam, fusionRun = pcall(Simulator.bestTeam, info, arg42, pool, arg3, trace)
+        local ok, res, res2, res3, res32, fusionTeam, fusionRun, fusionOpts = pcall(Simulator.bestTeam, info, arg42, pool, arg3, trace, report)
         if ok and res then
             local candidate = Simulator.teamFrom(res, info.map)
             local fusionRun2 = Simulator.run(info, candidate, { hpMul = 1 })
-            if fusionRun and Simulator.profileSig(fusionTeam) ~= Simulator.profileSig(res) then
-                if trace then trace("Comparing the Fusion lineup with the leading candidate") end
+            -- `strategy` is how the chosen lineup buys: nil = regular, fusionSave = yen kept for Carrot + Vego.
+            local strategy
+            local fusion = report.fusion
+            local fusionPicked = false
+            if fusionRun and (fusionOpts or Simulator.profileSig(fusionTeam) ~= Simulator.profileSig(res)) then
+                if trace then trace("Comparing the Fusion lineup with the best regular lineup") end
                 local normal = { won = fusionRun2.won, wave = fusionRun2.wave, seconds = fusionRun2.t }
-                if Simulator.compareTeams(info, res, fusionTeam, normal, fusionRun) then
-                    res, fusionRun2 = fusionTeam, fusionRun
+                local fusionBetter, fusionWhy = Simulator.compareTeams(info, res, fusionTeam, normal, fusionRun, { proposedOpts = fusionOpts })
+                if fusionBetter then
+                    res, fusionRun2, strategy, fusionPicked = fusionTeam, fusionRun, fusionOpts, true
                     candidate = Simulator.teamFrom(res, info.map)
-                    res2 = Simulator.run(info, candidate, { hpMul = res3 })
+                    local stressOpts = { hpMul = res3 }
+                    for key, option in pairs(strategy or {}) do stressOpts[key] = option end
+                    res2 = Simulator.run(info, candidate, stressOpts)
+                    fusion.note = tostring(fusion.note) .. " · ahead of the best regular lineup (" .. fusionWhy .. ")"
+                else
+                    fusion.note = tostring(fusion.note) .. " · the best regular lineup stays (" .. fusionWhy .. ")"
                 end
+            elseif fusionRun then
+                fusionPicked = true
+                fusion.note = tostring(fusion.note) .. " · this is also the lineup the regular search found"
             end
             local flag = Simulator.profileSig(res) ~= profile
             local str = ""
-            if flag then
+            local keptCurrent = false
+            if flag or strategy then
                 if trace then trace("Comparing the equipped team with: " .. Simulator.lineupNames(res)) end
-                local better, reason = Simulator.compareTeams(info, arg42, res, evaluate, fusionRun2)
+                local better, reason = Simulator.compareTeams(info, arg42, res, evaluate, fusionRun2, {
+                    proposedOpts = strategy,
+                    prefer = (not fusionPicked and flag) and report.priority or nil
+                })
                 if fusionRun2.fusionWave then
                     reason = reason .. " · proposed Fused Hero at wave " .. tostring(fusionRun2.fusionWave)
                 end
                 evaluate.teamReason = reason
-                App.log(1, "SIM", mode.label .. ": " .. reason .. (better and " · proposed team selected" or " · current team kept"))
+                App.log(1, "SIM", mode.label .. ": " .. reason .. (better and (flag and " · proposed team selected" or " · same team, yen is saved for Fusion") or " · current team kept"))
                 if better then
                     str = " · " .. reason
                 else
-                    res, flag, fusionRun2 = arg42, false, evaluate
+                    -- The real run, not the summary: later comparisons read its clear time.
+                    res, flag, strategy, keptCurrent = arg42, false, nil, true
+                    fusionRun2 = Simulator.run(info, teamFrom, { hpMul = 1 })
+                    candidate = teamFrom
                 end
             else
                 evaluate.teamReason = "the team search kept your current lineup"
+            end
+            -- Close the comparison: one lineup is CHOSEN, the rest keep the reason they lost.
+            do
+                local chosenNamed = false
+                if fusionPicked and not keptCurrent and fusion.status == "worked" then
+                    fusion.status = "chosen"
+                elseif fusion.status == "worked" and keptCurrent then
+                    fusion.note = tostring(fusion.note) .. " · your equipped team does as well or better"
+                end
+                for _, row in ipairs(report.rows) do
+                    if row.status == "chosen" then
+                        row.status = "worked"
+                        row.note = (row.note and (row.note .. " · ") or "") .. (keptCurrent and "your equipped team does as well or better" or "the Fusion lineup does better")
+                    end
+                end
+                if fusion.row and fusion.row.entry and fusion.status == "chosen" then
+                    fusion.row.entry.status, chosenNamed = "chosen", true
+                end
+                if not chosenNamed then
+                    for _, row in ipairs(report.rows) do
+                        local source = row.kind ~= "fusion" and row.team
+                        if source and not chosenNamed and row.status ~= "failed" and row.status ~= "untested" and source == Simulator.lineupNames(res) then
+                            row.status, chosenNamed = "chosen", true
+                            row.note = Simulator.whyLine(info, res, fusionRun2) or row.note
+                        end
+                    end
+                end
+                if not chosenNamed then
+                    table.insert(report.rows, 1, {
+                        name = keptCurrent and "equipped team" or "planned lineup",
+                        kind = "current",
+                        status = "chosen",
+                        team = Simulator.lineupNames(res),
+                        wave = fusionRun2.wave,
+                        won = fusionRun2.won,
+                        fusionWave = fusionRun2.fusionWave,
+                        note = evaluate.teamReason
+                    })
+                end
+            end
+            local whyShort = (not keptCurrent and not fusionPicked and report.priority) or Simulator.whyLine(info, res, fusionRun2) or evaluate.teamReason
+            if trace then
+                for _, line in ipairs(Simulator.reportLines(report, info)) do trace(line, true) end
+                for _, line in ipairs(Simulator.namedNotes(pool, res)) do trace(line, true) end
             end
             local forecast
             if flag then
@@ -31086,13 +32575,13 @@ function Simulator.plan(mode, arg2, arg3, arg4, freshSearch)
                     if okZ and wantZ then
                         local zLevel = table.clone(info)
                         zLevel.zone = true
-                        forecast = Simulator.evaluate(zLevel, candidate)
+                        forecast = Simulator.evaluate(zLevel, candidate, strategy)
                         forecast.zone = true
                         forecast.margin = forecast.margin .. " with the kill box"
                     end
                 end
                 if not forecast then
-                    forecast = Simulator.evaluate(info, candidate)
+                    forecast = Simulator.evaluate(info, candidate, strategy)
                 end
                 forecast.trust = Simulator.trust(info, candidate)
                 forecast.calibrated = evaluate.calibrated
@@ -31132,10 +32621,44 @@ function Simulator.plan(mode, arg2, arg3, arg4, freshSearch)
                 targetProfile = Simulator.profileSig(res),
                 rotation = rotation,
                 prediction = forecast,
-                why = evaluate.teamReason
+                why = evaluate.teamReason,
+                whyShort = whyShort,
+                -- Read by the match: buy only for Carrot + Vego while the defense holds.
+                strategy = strategy and strategy.fusionSave and { fusionSave = true } or nil,
+                view = {
+                    label = mode.label,
+                    map = tostring(info.map),
+                    total = info.total,
+                    endless = report.endless,
+                    short = report.short,
+                    current = Simulator.slots(arg42),
+                    currentWave = evaluate.wave,
+                    currentWon = evaluate.won,
+                    currentFusion = evaluate.fusionWave,
+                    planned = Simulator.slots(res),
+                    plannedWave = fusionRun2.wave,
+                    plannedWon = fusionRun2.won,
+                    plannedFusion = fusionRun2.fusionWave,
+                    better = flag,
+                    saving = strategy and strategy.fusionSave or nil,
+                    why = whyShort,
+                    detail = evaluate.teamReason,
+                    fusion = {
+                        status = report.fusion.status,
+                        note = report.fusion.note
+                    },
+                    rows = (function()
+                        local rows = {
+                        }
+                        for index = 1, math.min(18, # report.rows) do
+                            rows [index] = report.rows [index]
+                        end
+                        return rows
+                    end)()
+                }
             }
             App.log(1, "SIM", string.format("%s: best team from your units %s (%s)%s", mode.label, fusionRun2.won and "wins" or ("reaches wave " .. fusionRun2.wave), table.concat(list2, ", "), flag and (string.format(" · it plays · against enemies ×%.1f: %s at wave %d, yours %s at wave %d", res3, res2.won and "wins" or "falls", res2.wave, res32.won and "wins" or "falls", res32.wave) .. str) or " · the same as yours"))
-            if trace then trace("Decision: " .. (flag and "new lineup · " or "keep equipped · ") .. evaluate.teamReason) end
+            if trace then trace("Decision: " .. (flag and "new lineup · " or (strategy and "keep equipped, save yen for Fusion · " or "keep equipped · ")) .. evaluate.teamReason .. (whyShort and whyShort ~= evaluate.teamReason and (" · " .. whyShort) or "")) end
             if trace then trace("Checking available evolutions") end
             local list = {
             }
@@ -31191,6 +32714,7 @@ function Simulator.plan(mode, arg2, arg3, arg4, freshSearch)
             Brain.simEvo = list
         elseif not ok then
             if trace then trace("Stopped: " .. tostring(res)) end
+            Simulator.finishProgress()
             return evaluate, tostring(res)
         end
     elseif trace then
@@ -31198,6 +32722,7 @@ function Simulator.plan(mode, arg2, arg3, arg4, freshSearch)
     end
     App.saveSoon()
     if trace then trace("Finished") end
+    Simulator.finishProgress()
     return evaluate
 end
 Dungeon.T = {
@@ -35804,6 +37329,83 @@ function Match.econ()
             table.insert(placedByUuid [uuid], unit)
         end
     end
+    -- Damage types an equipped buffer raises: attackers of that type go down a little sooner.
+    local buffKinds = {
+    }
+    if Config.actives then
+        for _, member in ipairs(team) do
+            local buff = Units.allyBuff(member.id)
+            for kind in pairs(buff and buff.types or {
+            }) do
+                buffKinds [kind] = true
+            end
+        end
+    end
+    -- Carrot + Vego: what is still to buy before they can fuse, and what Fused Hero adds over the pair
+    -- as it stands. Same rule as the simulator, so the forecast and the match buy alike.
+    local fusionPath
+    do
+        local fusion = Units.FUSION
+        local heroRows = Units.rows(fusion.hero)
+        local parents = {
+        }
+        for _, member in ipairs(team) do
+            if fusion.attacks [member.id] then
+                parents [member.id] = member
+            end
+        end
+        local first, second = parents [fusion.parents [1]], parents [fusion.parents [2]]
+        if Config.actives and heroRows and first and second and not Match.random and not Match.trialId and not Match.trainee then
+            local heroes, lead = 0, {
+            }
+            for _, tower in ipairs(Match.mine) do
+                local id = tower._stats.id.Value
+                if id == fusion.hero then
+                    heroes = heroes + 1
+                elseif parents [id] then
+                    local level = tower._stats.upgrade.Value
+                    if not lead [id] or level > lead [id].level then
+                        lead [id] = {
+                            tower = tower,
+                            level = level
+                        }
+                    end
+                end
+            end
+            if heroes < (tonumber(Units.field(fusion.hero, "spawn_cap")) or 3) then
+                local remaining, standing, known = 0, 0, true
+                for _, member in ipairs({ first, second }) do
+                    local rows = Units.rows(member.id)
+                    local at = lead [member.id]
+                    if rows and rows.max >= fusion.upgrade then
+                        if not at then
+                            remaining = remaining + (member.data.cost or 0) * spawnCostMul
+                        end
+                        for level = (at and at.level or 0) + 1, fusion.upgrade do
+                            remaining = remaining + (rows [level].cost or 0)
+                        end
+                        if at then
+                            local ok, dps = pcall(Match.liveDps, at.tower, member.id)
+                            standing = standing + (ok and tonumber(dps) or 0)
+                        end
+                    else
+                        known = false
+                    end
+                end
+                if known then
+                    local step = math.min(1, heroRows.max)
+                    local ok, after = pcall(Units.dps, Units.fusedForm(first.u, second.u), step, Match.mod)
+                    local total = remaining + (step > 0 and (heroRows [1].cost or 0) or 0)
+                    fusionPath = {
+                        lead = lead,
+                        left = remaining,
+                        heroes = heroes,
+                        floor = (ok and (tonumber(after) or 0) > standing and total > 0) and (after - standing) / total or nil
+                    }
+                end
+            end
+        end
+    end
     for _, member in ipairs(team) do
         local studyLastWave = Match.trialId and Brain.trial and Brain.trial.study and wave >= (tonumber(Match.total) or math.huge)
         if Match.trialId and not Match.studyTeam and not studyLastWave and member.id ~= Match.trialId and not Units.isFarm(member.id) and (Match.trialSaving() or (not Units.allyBuff(member.id) and (Match.pressure or 0) < 0.6)) then
@@ -35871,9 +37473,14 @@ function Match.econ()
                         local gain = (shieldHp > 0 and Economy.shieldGain(Match.liveDps(copy, member.id), rows [level], Units.dps(member.u, level + 1, Match.mod), nextRow, shieldHp, shieldCount, 1, Match.info and Match.info.eff) or Economy.upgradeGain(Match.liveDps(copy, member.id), rows, level, cost, upCostMul, Units.dps(member.u, level + 1, Match.mod))) * trainBonus * Match.mergeBoost(copy) * Match.airBoost(copy) * Match.reach(copy) * Match.focusGain(copy)
                         local bleedGain = Match.bleedGain(member.id, level, false)
                         gain = gain + bleedGain
+                        local fusionStep = fusionPath and fusionPath.lead [member.id] and fusionPath.lead [member.id].tower == copy and level < Units.FUSION.upgrade
+                        if fusionStep and fusionPath.floor then
+                            gain = math.max(gain, fusionPath.floor * cost)
+                        end
                         table.insert(options, {
                             cost = cost,
                             gain = gain,
+                            fusionStep = fusionStep or nil,
                             m = copy,
                             e = member,
                             what = string.format("upgrade %s to level %d%s",
@@ -35920,16 +37527,24 @@ function Match.econ()
                 if Match.random and attackersPlaced < 8 then
                     placeWeight = placeWeight * (1 + (8 - attackersPlaced) * 0.25)
                 end
+                local isBuffer = Units.allyBuff(member.id) ~= nil
+                if not isBuffer and not Match.random and buffKinds [select(2, Units.types(member.id))] then
+                    placeWeight = placeWeight * Simulator.BUFF_MATCH
+                end
                 local idolGain = Match.random and Units.idol(member.id) and (Match.teamDps or 0) * Match.idolStep() * 2 or 0
                 local dpsGain = Match.shieldOf(Match.random and Match.cardDps(member) or Units.dps(member.u, 0, Match.mod), rows [0]) + Match.shieldWork(member.id, rows [0])
                 local blessGain = Match.blessGain(member)
+                local placeGain = dpsGain * placeWeight + Match.buffGain(member) + blessGain + idolGain + Match.holdGain(member, rows [0]) + Match.bleedGain(member.id, 0, true)
+                local fusionStep = fusionPath and Units.FUSION.attacks [member.id] and not fusionPath.lead [member.id]
+                if fusionStep and fusionPath.floor then
+                    placeGain = math.max(placeGain, fusionPath.floor * cost)
+                end
                 table.insert(options, {
                     place = true,
+                    support = isBuffer or nil,
+                    fusionStep = fusionStep or nil,
                     cost = cost,
-                    gain = dpsGain * placeWeight + Match.buffGain(member) + blessGain + idolGain + Match.holdGain(member,
-                    rows [0]) + Match.bleedGain(member.id,
-                    0,
-                    true),
+                    gain = placeGain,
                     e = member,
                     what = "place " .. Units.name(member.id) .. (blessGain > 0 and string.format(" (its blessing: +%s summon damage a second)",
                     Utils.fmt(blessGain)) or ""),
@@ -36085,7 +37700,7 @@ function Match.econ()
             options = upgradesOnly
         end
     end
-    local choice, why, waitText = Economy.decide(options, {
+    local ctx = {
         money = money,
         left = wavesLeft,
         attackers = attackers,
@@ -36108,7 +37723,28 @@ function Match.econ()
         airLeak = Match.depth and Match.depth.airLeak,
         cover = Match.depth and Match.depth.units > 0 and Match.depth.covEnd or nil,
         incomeRate = Match.incomeRate or (((Match.coming and Match.coming [1] and Match.coming [1].reward) or 500) + farmIncome) / ((Match.info and Match.info.waveSec) or 20)
-    })
+    }
+    -- The planner chose "save for Fusion" for this lineup: while the defense holds, yen goes only to
+    -- one Carrot and one Vego (and farms) until the first Fused Hero stands.
+    local savingNote
+    local planned = Brain.simTeam [Match.key]
+    if fusionPath and fusionPath.heroes == 0 and type(planned) == "table" and type(planned.strategy) == "table" and planned.strategy.fusionSave then
+        local focus, focusWhy = Economy.fusionFocus(options, ctx, function(option)
+            return option.fusionStep == true
+        end, fusionPath.left)
+        if focus then
+            options = focus
+            savingNote = string.format("saving for Fused Hero (¥%s to go, %s)", Utils.fmt(fusionPath.left), focusWhy)
+        elseif Match.fusionPause ~= focusWhy then
+            App.log(2, "ECON", "Fusion saving paused: " .. tostring(focusWhy))
+        end
+        Match.fusionPause = not focus and focusWhy or nil
+    end
+    local choice, why, waitText = Economy.decide(options, ctx)
+    if savingNote then
+        why = why and (savingNote .. " · " .. why) or nil
+        waitText = waitText and (savingNote .. " · " .. waitText) or nil
+    end
     if waitText then
         return App.status("Economy", waitText)
     end
@@ -41214,6 +42850,7 @@ GUI.LAYOUT = {
         ["In a match"] = { "Battle", "Controls", "Battle automation", "Left" },
         ["Your team at full upgrade"] = { "Battle", "Controls", "Equipped units", "Right" },
         ["Simulator and teams"] = { "Battle", "Planner", "Team planning", "Right" },
+        Plan = { "Battle", "Planner", "Plan", "Left" },
         ["Advanced: farm or damage"] = { "Battle", "Economy", "Farm income", "Left" },
     },
     Activity = {
@@ -41243,6 +42880,9 @@ GUI.CONTROL_LAYOUT = {
     ["Save Threshold"] = { "Battle", "Economy", "Defense thresholds", "Right", true },
     ["Reset Mode Stats"] = { "Activity", "History", "History tools", "Right", true },
     ["Reset Unit Learning"] = { "Battle", "Planner", "Planner tools", "Right", true },
+    ["Simulate Now"] = { "Battle", "Planner", "Plan", "Left" },
+    ["Equip Best Team"] = { "Battle", "Planner", "Plan", "Left" },
+    ["Restore My Team"] = { "Battle", "Planner", "Plan", "Left" },
     ["Go To Lobby"] = { "Home", "", "Farm control", "Left" },
     ["Start Farming Again"] = { "Home", "", "Farm control", "Left" },
     ["Log Level"] = { "Activity", "Log", "Logging", "Right" },
@@ -41288,10 +42928,10 @@ GUI.SHORT_TEXT = {
     ["Unit To Feed"] = { "Unit to level", "Feed eligible duplicates into this unit for XP." },
     ["Use Units Up To"] = { "Maximum fodder rarity", "Mythic and Secret units are excluded from XP feeding." },
     ["Auto Fuse For XP"] = { "Enable XP fusion", "Consume eligible units up to the target's level cap." },
-    ["Auto-Equip Best Team"] = { "Equip planned team", "Use the stronger team before a run, then restore yours." },
-    ["Simulate Now"] = { "Recalculate plan", "Run the simulator and team search in the lobby." },
-    ["Equip Best Team"] = { "Equip planned team", "Equip the best team found in the lobby." },
-    ["Restore My Team"] = { "Restore my team", "Put your original team back in the lobby." },
+    ["Auto-Equip Best Team"] = { "Auto-equip before runs", "Use the planned team for a run, then restore yours." },
+    ["Simulate Now"] = { "Recalculate plan", "Simulate the next mode and search your units again (lobby)." },
+    ["Equip Best Team"] = { "Equip planned team", "Put the planned team on now (lobby)." },
+    ["Restore My Team"] = { "Restore my team", "Put your own team back (lobby)." },
     ["Go To Lobby"] = { "Return to lobby", "Leave this run and hold future match starts." },
     ["Start Farming Again"] = { "Resume after lobby hold", "Clear the lobby hold and allow match starts." },
     ["Battle AI"] = { "Battle automation", "Control placement and upgrades inside a match." },
@@ -41482,6 +43122,131 @@ function GUI.statusCard(group, options, compact)
     end
     handle.Set(options)
     return handle
+end
+
+-- Battle → Planner: map and mode, both teams by slot with roles, the expected wave, the reason, progress.
+function GUI.planCard(group)
+    local heading = group:CreateLabel({ Text = "<b>Plan</b>" })
+    local cells = {}
+    for _, key in ipairs({ "Map & mode", "Current team", "Planned team", "Expected", "Why" }) do
+        cells[key] = group:CreateStatus({ Name = key, Value = "", Style = "Plain", Wrap = true, Visible = false })
+    end
+    local state = group:CreateStatus({ Name = "Calculation", Value = "", Style = "Plain", Wrap = true, Visible = false })
+    local progress = group:CreateProgress({ Name = "Calculation progress", CurrentValue = 0, Visible = false })
+    local handle = {}
+    function handle.Set(a, b)
+        local data = a == handle and b or a
+        data = data or {}
+        heading:Set("<b>" .. GUI.escape(data.title or "Plan") .. "</b>")
+        for key, native in pairs(cells) do
+            local text = tostring(data[key] or "")
+            native:SetVisible(text ~= "")
+            if text ~= "" then native:Set(GUI.escape(text)) end
+        end
+        if data.plannedColor then cells["Planned team"]:SetColor(data.plannedColor) end
+        local status = tostring(data.state or "")
+        state:SetVisible(status ~= "")
+        if status ~= "" then state:Set(GUI.escape(status)) end
+        progress:SetVisible(type(data.progress) == "number")
+        if type(data.progress) == "number" then
+            progress:Set(math.clamp(data.progress, 0, 1), true)
+        end
+    end
+    return handle
+end
+
+function GUI.slotLines(slots)
+    local lines = {}
+    for index, slot in ipairs(slots or {}) do
+        table.insert(lines, string.format("%d · %s — %s", index, tostring(slot.name), tostring(slot.role)))
+    end
+    return table.concat(lines, "\n")
+end
+
+function GUI.planView(col)
+    local data = { title = "Plan" }
+    local running = Simulator.progress
+    if running and running.running and Utils.now() - (running.at or 0) < 180 then
+        data.progress = running.frac or 0
+        data.state = string.format("%s · %d%% · %ds · %s", tostring(running.label), math.floor((running.frac or 0) * 100 + 0.5), math.floor(Utils.now() - (running.started or Utils.now())), tostring(running.text))
+    elseif running and running.started then
+        data.state = string.format("Last calculation: %s · took %ds", tostring(running.label), math.floor((running.at or running.started) - running.started))
+    end
+    local equipped = {}
+    for _, unit in ipairs(Units.equipped()) do
+        table.insert(equipped, { name = Units.name(unit.id), role = Units.roleName(unit.id) })
+    end
+    data["Current team"] = #equipped > 0 and GUI.slotLines(equipped) or "no unit equipped"
+    local nextMode = Modes.lastScored and Modes.lastScored[1]
+    local plan = FarmHub.manualPlan and FarmHub.manualPlan.team
+    if not plan and nextMode then plan = Brain.simTeam[nextMode.key] end
+    if not plan then
+        for _, value in pairs(Brain.simTeam) do
+            if type(value) == "table" and (not plan or (value.at or 0) > (plan.at or 0)) then plan = value end
+        end
+    end
+    if type(plan) ~= "table" then
+        data["Map & mode"] = nextMode and (tostring(nextMode.label) .. " · not planned yet") or "waiting for the next mode"
+        data["Why"] = App.where == "lobby" and "Press Recalculate plan to simulate the next mode." or "The planner runs in the lobby."
+        return data
+    end
+    local view = type(plan.view) == "table" and plan.view or nil
+    local age = math.max(0, os.time() - (tonumber(plan.at) or os.time()))
+    local label = tostring((view and view.label) or plan.label or "?")
+    data.title = "Plan · " .. label
+    if view then
+        local kind = view.endless and "Infinite" or (view.short and string.format("short mode, %d waves", view.total or 0) or string.format("%d waves", view.total or 0))
+        data["Map & mode"] = string.format("%s · map %s · %s · calculated %s ago", label, tostring(view.map), kind, age < 90 and (age .. "s") or (math.floor(age / 60) .. " min"))
+    else
+        data["Map & mode"] = label
+    end
+    local function outcome(won, wave, fusionWave)
+        if wave == nil then return "not simulated" end
+        local text = won and ((view and view.endless) and string.format("lasts past wave %d", wave) or string.format("clears all %d waves", (view and view.total) or wave))
+            or string.format("reaches wave %d%s", wave, (view and not view.endless and view.total) and (" of " .. view.total) or "")
+        return text .. (fusionWave and (" · Fused Hero at wave " .. tostring(fusionWave)) or "")
+    end
+    if plan.better and view and view.planned then
+        data["Planned team"] = GUI.slotLines(view.planned)
+    elseif plan.better then
+        data["Planned team"] = table.concat(plan.names or {}, ", ")
+    else
+        data["Planned team"] = "same as your current team" .. ((view and view.saving) and " · yen is saved for Carrot + Vego" or "")
+    end
+    if view then
+        local planned = outcome(view.plannedWon, view.plannedWave, view.plannedFusion)
+        data["Expected"] = plan.better and string.format("planned team %s · current team %s", planned, outcome(view.currentWon, view.currentWave, view.currentFusion)) or ("your team " .. planned)
+    else
+        data["Expected"] = plan.won and "wins" or ("reaches wave " .. tostring(plan.wave))
+    end
+    local why = tostring((view and view.why) or plan.whyShort or plan.why or "")
+    if view and type(view.fusion) == "table" and view.fusion.status ~= "chosen" and view.fusion.status ~= "untested" then
+        why = why .. "\nFusion: " .. tostring(view.fusion.note)
+    end
+    data["Why"] = why
+    data.plannedColor = col and (plan.better and col.green or col.text) or nil
+    return data
+end
+
+function GUI.fusionCompareRows(result, err)
+    if not result then
+        return { ["Result"] = tostring(err or "No comparison yet."), ["Current team"] = "", ["Best regular lineup"] = "", ["Fusion lineup"] = "" }
+    end
+    local function wave(side) return side and ("wave " .. tostring(side.wave or 0)) or "—" end
+    local function block(side)
+        if not side then return "" end
+        return Simulator.sideText(side, result.total, result.endless) .. "\n" .. tostring(side.names) .. (side.why and ("\n" .. side.why) or "")
+    end
+    local fusionCell = result.fusion and block(result.fusion) or ""
+    local status = Simulator.STATUS[result.fusionStatus] or tostring(result.fusionStatus)
+    fusionCell = (fusionCell ~= "" and (fusionCell .. "\n") or "") .. status .. " · " .. tostring(result.fusionNote)
+    return {
+        ["Result"] = string.format("%s · current %s  |  best regular %s  |  Fusion %s%s", tostring(result.label), wave(result.current), wave(result.regular),
+            result.fusion and wave(result.fusion) or "not simulated", (result.fusion and result.fusion.fusionWave) and (" (fused at wave " .. result.fusion.fusionWave .. ")") or ""),
+        ["Current team"] = block(result.current),
+        ["Best regular lineup"] = block(result.regular),
+        ["Fusion lineup"] = fusionCell,
+    }
 end
 
 function GUI.modeSummary(nextMode, skipped)
@@ -41796,6 +43561,7 @@ function GUI.window(Airflow)
     })
     GUI.NativeWindow = window
     GUI.prepareNavigation(window)
+    GUI.block("Battle", "Planner", "Plan", "Left")
     GUI.skipInfo = GUI.paragraph(GUI.block("Farm", "Rules", "Unavailable modes", "Right"), "Waiting for the first plan.")
     local controller = { Native = window }
     function controller:Tab(_, name)
@@ -43255,6 +45021,8 @@ function GUI.build()
         "5",
         "6"
     }, 150)
+    tab:Section("Plan")
+    GUI.plan = GUI.planCard(tab:Group())
     tab:Section("Simulator and teams")
     GUI.sim = tab:KeyValue({
         "Next mode",
@@ -43383,18 +45151,30 @@ function GUI.build()
     tab = window:Tab("🧪", "TESTING")
     tab:Section("One Namek Infinite run")
     GUI.namekReport = tab:Paragraph(GUI.namekTestText())
-    local fusionReport = tab:Paragraph("Run a separate Namek forecast for Fused Hero.")
-    local fusionRunning = false
-    tab:Button("🧪", "Compare Fused Hero on Namek", "Simulate your current team and a team with both Fusion units.", function()
-        if fusionRunning then return end
-        fusionRunning = true
-        fusionReport:Set("Simulating Namek Infinite…")
-        local ok, result = pcall(Simulator.testNamekFusion)
-        fusionRunning = false
-        local message = ok and result or ("Fusion forecast failed: " .. tostring(result))
-        fusionReport:Set(message)
-        App.log(1, "TEST", message)
+    tab:Section("Fused Hero on Namek")
+    local fusionKeys = { "Result", "Current team", "Best regular lineup", "Fusion lineup" }
+    GUI.fusionCompare = tab:KeyValue(fusionKeys, 90)
+    local function showFusion(rows)
+        for _, key in ipairs(fusionKeys) do
+            pcall(GUI.fusionCompare.Set, key, rows[key] or "")
+        end
+    end
+    showFusion(GUI.fusionCompareRows(nil, "Compares your current team, the best regular lineup and the Carrot + Vego lineup on Namek Infinite."))
+    tab:Button("🧪", "Compare Fused Hero on Namek", "Simulate your current team, the best regular lineup and the Carrot + Vego lineup on Namek Infinite.", function()
+        if GUI.fusionRunning then return end
+        GUI.fusionRunning = true
+        showFusion(GUI.fusionCompareRows(nil, "Simulating Namek Infinite…"))
+        local ok, result, reason = pcall(Simulator.testNamekFusion)
+        GUI.fusionRunning = false
+        if not ok then
+            Simulator.finishProgress()
+            result, reason = nil, "Fusion comparison failed: " .. tostring(result)
+        end
+        local rows = GUI.fusionCompareRows(result, reason)
+        showFusion(rows)
+        App.log(1, "TEST", rows["Result"])
     end)
+    tab:Section("One Namek Infinite run")
     tab:Button("🧪", "Arm Namek Infinite test", "Arm one test, then enter Namek Infinite with Auto Farm and battle automation enabled.", function()
         if Match.namekTest and not Match.namekTest.finished then
             return helper6("TESTING", "The current test is running.", "warning")
@@ -43894,6 +45674,15 @@ function GUI.update()
                 pcall(GUI.team.Set, tostring(i), "", nil, "")
             end
         end
+    end
+    if GUI.plan then
+        local ok, res = pcall(GUI.planView, col)
+        if ok and res then
+            pcall(GUI.plan.Set, res)
+        end
+    end
+    if GUI.fusionCompare and GUI.fusionRunning and Simulator.progress then
+        pcall(GUI.fusionCompare.Set, "Result", string.format("Simulating… %d%% · %s", math.floor((Simulator.progress.frac or 0) * 100 + 0.5), tostring(Simulator.progress.text)))
     end
     if GUI.sim then
         local value = Modes.lastScored and Modes.lastScored [1]
