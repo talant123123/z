@@ -992,6 +992,7 @@ Core.FOLDER = "AA_SmartFarm"
 Core.SETTINGS = Core.FOLDER .. "/settings.json"
 Core.BRAIN = Core.FOLDER .. "/brain.json"
 Core.LOGFILE = Core.FOLDER .. "/log.txt"
+Core.PLAN_LOGFILE = Core.FOLDER .. "/planner.log"
 Core.SELF = "awaqwaa_script_awaqwaa_airflow.lua"
 Core.DISCORD_INVITE = ""
 Core.HIVE_URL = ""
@@ -16038,11 +16039,38 @@ function Utils.plain(Ib, Jb)
     return Lb
 end
 
+function App.writePlannerLog(entry)
+    local ok, err = pcall(function()
+        assert(type(writefile) == "function" and type(isfile) == "function", "file writing is unavailable")
+        if type(isfolder) == "function" and type(makefolder) == "function" and not isfolder(Core.FOLDER) then
+            makefolder(Core.FOLDER)
+        end
+        local line = os.date("%Y-%m-%d ") .. entry .. "\n"
+        if not isfile(Core.PLAN_LOGFILE) then
+            writefile(Core.PLAN_LOGFILE, line)
+        elseif type(appendfile) == "function" then
+            appendfile(Core.PLAN_LOGFILE, line)
+        else
+            assert(type(readfile) == "function", "appending requires appendfile or readfile")
+            writefile(Core.PLAN_LOGFILE, readfile(Core.PLAN_LOGFILE) .. line)
+        end
+    end)
+    if not ok and not App.plannerFileWarning then
+        App.plannerFileWarning = true
+        App.log(0, "LOG", "Could not write " .. Core.PLAN_LOGFILE .. ": " .. tostring(err))
+    end
+end
+
 function App.log(Ob, Pb, Qb)
-    if Ob > (Config.logLevel or 1) then
+    local visible = Ob <= (Config.logLevel or 1)
+    if not visible and Pb ~= "PLAN" then
         return
     end
     local Rb = string.format("[%s] %-7s %s", os.date("%H:%M:%S"), Pb, tostring(Qb))
+    if Pb == "PLAN" then
+        App.writePlannerLog(Rb)
+    end
+    if not visible then return end
     table.insert(LogBuffer.lines, Rb)
     if GUI.activityLog then
         pcall(function()
@@ -30159,11 +30187,29 @@ function Simulator.fusionLineup(level, team, pool)
     return lineup
 end
 
-function Simulator.bestTeam(Drb, Erb, Frb, Grb)
+function Simulator.planTrace(label)
+    Simulator.planSequence = (Simulator.planSequence or 0) + 1
+    local id, started = Simulator.planSequence, Utils.now()
+    return function(message)
+        App.log(1, "PLAN", string.format("#%d +%.1fs %s · %s", id, Utils.now() - started, label, message))
+    end
+end
+
+function Simulator.lineupNames(team)
+    local names = {}
+    for _, unit in ipairs(team) do
+        table.insert(names, Units.name(unit.unit_id))
+    end
+    return #names > 0 and table.concat(names, ", ") or "none"
+end
+
+function Simulator.bestTeam(Drb, Erb, Frb, Grb, trace)
     local Hrb = Utils.now()
     Grb = Grb or 25
     local Irb = table.clone(Erb)
+    if trace then trace("Finding the enemy-HP threshold for the current team") end
     local Jrb, Krb = Simulator.cliff(Drb, Simulator.teamFrom(Irb, Drb.map))
+    if trace then trace(string.format("Stress threshold ×%.2f HP · wave %d", Jrb, Krb.wave or 0)) end
     local function Rrb(Srb)
         local Trb = 0
         for Urb, Vrb in ipairs(Srb) do
@@ -30175,6 +30221,7 @@ function Simulator.bestTeam(Drb, Erb, Frb, Grb)
     end
     local Wrb
     while # Irb < 6 do
+        if trace then trace(string.format("Testing eligible candidates for slot %d", #Irb + 1)) end
         local Xrb, Yrb
         for _rb, asb in ipairs(Frb) do
             local bsb = false
@@ -30209,8 +30256,11 @@ function Simulator.bestTeam(Drb, Erb, Frb, Grb)
         }))) / 3
     end
     local tsb, usb = Wrb or Krb, psb(Irb, Wrb or Krb)
-    local fusionTeam = Simulator.fusionLineup(Drb, Irb, Frb)
+    local fusionTeam, fusionReason = Simulator.fusionLineup(Drb, Irb, Frb)
     local fusionRun
+    if trace then
+        trace(fusionTeam and ("Simulating Fusion lineup: " .. Simulator.lineupNames(fusionTeam)) or ("Fusion skipped: " .. tostring(fusionReason)))
+    end
     if fusionTeam then
         local tested = Simulator.teamFrom(fusionTeam, Drb.map)
         local normal = Simulator.run(Drb, tested, { hpMul = 1 })
@@ -30221,9 +30271,12 @@ function Simulator.bestTeam(Drb, Erb, Frb, Grb)
             if score > usb then
                 Irb, tsb, usb = fusionTeam, result, score
             end
-            App.log(1, "SIM", string.format("Fusion comparison: Fused Hero at wave %d on normal enemy HP", normal.fusionWave))
+            local message = string.format("Fusion: created at wave %d · reached wave %d · %s in the stress comparison",
+                normal.fusionWave, normal.wave or 0, Irb == fusionTeam and "ahead" or "not ahead")
+            if trace then trace(message) else App.log(1, "SIM", message) end
         else
-            App.log(1, "SIM", string.format("Fusion comparison: the pair did not fuse by wave %d", normal.wave or 0))
+            local message = string.format("Fusion: no fusion by wave %d · ¥%.0f left", normal.wave or 0, normal.money or 0)
+            if trace then trace(message) else App.log(1, "SIM", message) end
         end
     end
     if type(Frb.rest) == "table" and # Frb.rest > 0 then
@@ -30275,10 +30328,12 @@ function Simulator.bestTeam(Drb, Erb, Frb, Grb)
         end
     end
     for Msb = 1, 2 do
+        if trace then trace(string.format("Testing substitutions, pass %d of 2", Msb)) end
         local Nsb = false
         for Osb = 1, # Irb do
             for Psb, Qsb in ipairs(Frb) do
                 if Utils.now() - Hrb > Grb then
+                    if trace then trace("Substitution budget reached; comparing the finalists found so far") end
                     return Irb, tsb, Jrb, Krb, fusionRun and fusionTeam or nil, fusionRun
                 end
                 local Rsb = false
@@ -30415,6 +30470,8 @@ function Simulator.levelFor(rtb)
 end
 
 function Simulator.testNamekFusion()
+    local trace = Simulator.planTrace("Namek Infinite / Fusion test")
+    trace("Started")
     if App.where ~= "lobby" then return "Run the Fusion forecast in the lobby." end
     local session = Core.session()
     if not (session and session.profile_data and session.collection) then
@@ -30428,10 +30485,14 @@ function Simulator.testNamekFusion()
     local equipped = {}
     for _, unit in ipairs(Units.equipped()) do table.insert(equipped, unit.u) end
     local lineup, reason = Simulator.fusionLineup(level, equipped, Simulator.pool(mod, level))
-    if not lineup then return reason end
+    if not lineup then trace("Fusion skipped: " .. reason) return reason end
 
+    trace("Simulating Fusion lineup: " .. Simulator.lineupNames(lineup))
     local result = Simulator.run(level, Simulator.teamFrom(lineup, level.map), { hpMul = 1 })
+    trace("Simulating equipped lineup: " .. Simulator.lineupNames(equipped))
     local baseline = Simulator.run(level, Simulator.teamFrom(equipped, level.map), { hpMul = 1 })
+    trace(string.format("Finished · current wave %d · Fusion lineup wave %d · fusion wave %s",
+        baseline.wave or 0, result.wave or 0, tostring(result.fusionWave or "none")))
     return string.format("Namek Infinite · current team reaches wave %d · Fusion team reaches wave %d · %s",
         baseline.wave or 0, result.wave or 0,
         result.fusionWave and ("Fused Hero at wave " .. tostring(result.fusionWave)) or "no fusion before the run ended")
@@ -30462,11 +30523,14 @@ function Simulator.compareTeams(level, current, proposed, currentRun, proposedRu
 end
 
 function Simulator.plan(wtb, xtb, ytb, ztb, freshSearch)
+    local trace = xtb and Simulator.planTrace(tostring(wtb.label or wtb.key))
+    if trace then trace(freshSearch and "Started manual search" or "Started automatic search") end
     local Atb, Btb = Simulator.levelFor(wtb)
     if wtb.ldOverride then
         Atb = wtb.ldOverride
     end
     if not Atb then
+        if trace then trace("Stopped: level data is unavailable") end
         return nil
     end
     local Ctb = wtb.mod or (wtb.kind == "daily" and Brain.live.daily and Brain.live.daily.mod) or Modes.levelMod(wtb.level)
@@ -30482,7 +30546,11 @@ function Simulator.plan(wtb, xtb, ytb, ztb, freshSearch)
     end
     local profile = Simulator.profileSig(Etb)
     local Htb = Simulator.teamFrom(Etb, Dtb.map)
+    if trace then trace("Simulating equipped lineup: " .. Simulator.lineupNames(Etb)) end
     local Itb = Simulator.evaluate(Dtb, Htb)
+    if trace then
+        trace(string.format("Baseline: wave %d/%d · %.0fs · clear=%s", Itb.wave, Itb.total, Itb.seconds, tostring(Itb.won)))
+    end
     local Jtb, Ktb = pcall(Simulator.zoneChoice, Dtb, Htb, Itb.p >= 0.92 and 1.7 or Itb.p >= 0.7 and 1.3 or 1, false)
     if Jtb and Ktb then
         Dtb.zone = true
@@ -30551,16 +30619,21 @@ function Simulator.plan(wtb, xtb, ytb, ztb, freshSearch)
                     why = "the team that won here last run, no search"
                 }
                 App.log(1, "SIM", string.format("%s: the team that won here last run plays again (%s): %s, and real runs won %d in a row", wtb.label, table.concat(Vtb, ", "), Utb and string.format((Ttb.ratio or 0) < 0.1 and "the simulator is off ×%.2f against real runs here" or "the simulator is off ×%.1f against real runs here", Ttb.ratio or 0) or (Stb.won and "the simulator also predicts a win" or string.format("the simulator calls it a loss at wave %d", Stb.wave)), Ltb.winTeamN or 1))
+                if trace then trace("Finished: selected a team with a recorded real win") end
                 return Itb
             end
         end
     end
     if Config.simTeams and xtb then
-        local Ztb, _tb, aub, bub, cub, fusionTeam, fusionRun = pcall(Simulator.bestTeam, Dtb, Etb, Simulator.pool(Ctb, Dtb), ytb)
+        if trace then trace("Reading the unit collection and ranking candidates") end
+        local pool = Simulator.pool(Ctb, Dtb)
+        if trace then trace(string.format("Pool: %d priority candidates · %d reserve candidates", #pool, #(pool.rest or {}))) end
+        local Ztb, _tb, aub, bub, cub, fusionTeam, fusionRun = pcall(Simulator.bestTeam, Dtb, Etb, pool, ytb, trace)
         if Ztb and _tb then
             local candidate = Simulator.teamFrom(_tb, Dtb.map)
             local qub = Simulator.run(Dtb, candidate, { hpMul = 1 })
             if fusionRun and Simulator.profileSig(fusionTeam) ~= Simulator.profileSig(_tb) then
+                if trace then trace("Comparing the Fusion lineup with the leading candidate") end
                 local normal = { won = qub.won, wave = qub.wave, seconds = qub.t }
                 if Simulator.compareTeams(Dtb, _tb, fusionTeam, normal, fusionRun) then
                     _tb, qub = fusionTeam, fusionRun
@@ -30571,6 +30644,7 @@ function Simulator.plan(wtb, xtb, ytb, ztb, freshSearch)
             local dub = Simulator.profileSig(_tb) ~= profile
             local hub = ""
             if dub then
+                if trace then trace("Comparing the equipped team with: " .. Simulator.lineupNames(_tb)) end
                 local better, reason = Simulator.compareTeams(Dtb, Etb, _tb, Itb, qub)
                 if qub.fusionWave then
                     reason = reason .. " · proposed Fused Hero at wave " .. tostring(qub.fusionWave)
@@ -30629,6 +30703,8 @@ function Simulator.plan(wtb, xtb, ytb, ztb, freshSearch)
                 why = Itb.teamReason
             }
             App.log(1, "SIM", string.format("%s: best team from your units %s (%s)%s", wtb.label, qub.won and "wins" or ("reaches wave " .. qub.wave), table.concat(tub, ", "), dub and (string.format(" · it plays · against enemies ×%.1f: %s at wave %d, yours %s at wave %d", bub, aub.won and "wins" or "falls", aub.wave, cub.won and "wins" or "falls", cub.wave) .. hub) or " · the same as yours"))
+            if trace then trace("Decision: " .. (dub and "new lineup · " or "keep equipped · ") .. Itb.teamReason) end
+            if trace then trace("Checking available evolutions") end
             local zub = {
             }
             for Aub, Bub in ipairs(Simulator.evolutions()) do
@@ -30682,10 +30758,14 @@ function Simulator.plan(wtb, xtb, ytb, ztb, freshSearch)
             end
             Brain.simEvo = zub
         elseif not Ztb then
+            if trace then trace("Stopped: " .. tostring(_tb)) end
             return Itb, tostring(_tb)
         end
+    elseif trace then
+        trace("Team selection is disabled")
     end
     App.saveSoon()
+    if trace then trace("Finished") end
     return Itb
 end
 Dungeon.T = {
