@@ -10,7 +10,7 @@ local AIRFLOW_SOURCE = [====[
 -- Teleports use this edition's local cache instead of fetching the old UI script.
 -- Statically checked; not run inside Roblox.
 
-local VERSION = "2.5"
+local VERSION = "2.6"
 if _G.AA_SF and _G.AA_SF.alive then
     if _G.AA_SF.version == VERSION then
         warn("[awaqwaa] v" .. VERSION .. " is already running")
@@ -1051,6 +1051,37 @@ table.insert(CHANGELOG, 1, {
     }
 })
 table.insert(CHANGELOG, 1, {
+    v = "2.6",
+    date = "Nov 16, 2026",
+    title = "Farming: Quick Start and Routines",
+    items = {
+        {
+            "🚀",
+            "Quick Start",
+            "Farming → Quick Start: pick a Mode, a Map (and a Difficulty for story acts), set Runs, press Start Farming. The last setup comes back next time. Optional settings (Auto Buff, buff type, matchmaking, ending Infinite early) sit under Advanced Settings, and a missing field is named before anything starts.",
+            "NEW"
+        },
+        {
+            "📋",
+            "Routines",
+            "Farming → Routines: save named queues of tasks, each with its own map, difficulty and settings. Add, edit, reorder and delete tasks. Start Routine plays each task until its runs are done, then switches to the next one by itself, and stops after the last.",
+            "NEW"
+        },
+        {
+            "📊",
+            "Progress, Stop and Retry",
+            "Task 1 of 3 · Story → Planet Namak (Hard) · 12/50. A run counts once, when the game confirms the win (Infinite: when it ends); a loss, a failed start or a disconnect counts nothing. Stop lets the current match finish and starts nothing after it. A start that keeps failing pauses the farm with the reason, and Retry goes on from the confirmed count. Only one farm runs at a time.",
+            "NEW"
+        },
+        {
+            "🛡️",
+            "Your Auto Farm settings stay yours",
+            "Quick Start and Routines lay their settings over Auto Farm only while they run. Your own settings are what gets saved, what the Stages, Challenges, Events, Party and Rules pages show, and what comes back when the farm ends.",
+            "IMPROVED"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
     v = "2.5",
     date = "Nov 16, 2026",
     title = "Performance tab",
@@ -1193,6 +1224,8 @@ local Strategy = {
 }
 local Hunt = {
 }
+local Farming = {
+}
 local GUI = {
     UI = {
     },
@@ -1316,6 +1349,11 @@ Core.DEFAULTS = {
     gfxLighting = false,
     gfx3dOff = false,
     gfxFps = 0,
+    qsTask = {
+    },
+    routines = {
+    },
+    routineSel = "",
     autoSummon = false,
     summonBanner = "",
     tokenFloor = 0,
@@ -16343,6 +16381,9 @@ function App.appendLog(path, text)
 end
 
 function App.log(arg1, log, arg3)
+    if log == "MODE" then
+        Farming.lastWhy = arg3
+    end
     local visible = arg1 <= (Config.logLevel or 1)
     if not visible and log ~= "PLAN" then
         return
@@ -16473,7 +16514,7 @@ function App.saveSoon()
 end
 
 function App.saveNow()
-    local settingsSaved, settingsError = Utils.writeJson(Core.SETTINGS, Config)
+    local settingsSaved, settingsError = Utils.writeJson(Core.SETTINGS, Farming.savedConfig())
     local brainSaved, brainError, brainText = Utils.writeJson(Core.BRAIN, Brain)
     -- A second copy every 10 minutes: if the game closes in the middle of a write,
     -- the farm's memory comes back from it instead of starting over.
@@ -16653,6 +16694,7 @@ do
     }
     Brain.lastRun = helper(readJson.lastRun)
     Brain.holdLobby = helper(readJson.holdLobby)
+    Brain.farmRun = helper(readJson.farmRun)
     Brain.relicOff = helper(readJson.relicOff) or {
     }
     Brain.buyStorage = helper(readJson.buyStorage)
@@ -28137,6 +28179,734 @@ function FarmHub.recalculatePlan(notify)
     report(message, tone)
 end
 
+-- ===== Farming sessions: Quick Start and Routines =====
+-- A session is one Quick Start or one Routine: an ordered list of tasks (mode, map, difficulty, runs,
+-- optional settings). It drives the usual Auto Farm: while a task runs, its mode, map and settings are laid
+-- over Config for this session only (Farming.base keeps your own values, and settings.json always gets
+-- those). A run counts once, when the game confirms it was won (Infinite: when it ends, as it always
+-- ends with the base falling). Brain.farmRun keeps the session across teleports and restarts.
+Farming.MODES = {
+    {
+        id = "story",
+        name = "Story",
+        only = "onlyStory",
+        enable = {
+            "firstClears",
+            "farm"
+        },
+        pick = "pickStory",
+        maps = "story"
+    },
+    {
+        id = "legend",
+        name = "Legend Stage",
+        only = "onlyLegend",
+        enable = {
+        },
+        pick = "pickLegend",
+        maps = "legend",
+        mm = "mmLegend"
+    },
+    {
+        id = "raid",
+        name = "Raid",
+        only = "onlyRaids",
+        enable = {
+            "raids"
+        },
+        pick = "pickRaid",
+        maps = "raid",
+        mm = "mmRaid"
+    },
+    {
+        id = "infinite",
+        name = "Infinite",
+        only = "onlyInfinite",
+        enable = {
+            "infinite"
+        },
+        pick = "pickInfinite",
+        maps = "infinite",
+        mm = "mmInfinite",
+        endEarly = true
+    },
+    {
+        id = "portal",
+        name = "Portal",
+        only = "onlyPortals",
+        enable = {
+            "portals"
+        },
+        pick = "pickPortal",
+        maps = "portal"
+    },
+    {
+        id = "challenge",
+        name = "Challenges",
+        only = "onlyChallenges",
+        enable = {
+            "dailyChallenge",
+            "challenge"
+        },
+        mm = "dailyMatch"
+    },
+    {
+        id = "artifact",
+        name = "Artifact Stage",
+        only = "onlyArtifact",
+        enable = {
+            "artifact"
+        }
+    },
+    {
+        id = "dungeon",
+        name = "Dungeon",
+        only = "onlyDungeons",
+        enable = {
+            "dungeon",
+            "dungeonStart"
+        }
+    },
+    {
+        id = "event",
+        name = "Event",
+        only = "onlyCoins",
+        enable = {
+            "event"
+        },
+        mm = "mmEvent",
+        needsEvent = true
+    }
+}
+Farming.SAME = {
+    autoBuff = "same",
+    buffKind = "same",
+    matchmake = "same",
+    endEarly = "same"
+}
+-- A start that fails this many times in a row, or no playable mode for this long, pauses the session.
+Farming.MAX_FAILS = 3
+Farming.NO_MODE_WAIT = 120
+Farming.base = {
+}
+Farming.overlaid = false
+
+function Farming.mode(id)
+    for _, mode in ipairs(Farming.MODES) do
+        if mode.id == id then
+            return mode
+        end
+    end
+    return nil
+end
+
+function Farming.copy(value)
+    if type(value) ~= "table" then
+        return value
+    end
+    local copy = {
+    }
+    for key, item in pairs(value) do
+        copy [key] = Farming.copy(item)
+    end
+    return copy
+end
+
+function Farming.newTask(mode)
+    return {
+        mode = mode or "story",
+        map = "",
+        diff = "",
+        runs = 10,
+        adv = Farming.copy(Farming.SAME)
+    }
+end
+
+-- Maps a mode offers. Story maps are acts; their difficulty is a separate field (Farming.diffOptions).
+function Farming.mapOptions(modeId)
+    local mode = Farming.mode(modeId)
+    if not mode then
+        return {
+        }
+    end
+    if not mode.maps then
+        return {
+            {
+                text = mode.id == "event" and "The current event" or "Set by the game",
+                value = ""
+            }
+        }
+    end
+    local ok, rows = pcall(GUI.modeOptions, mode.maps)
+    rows = ok and type(rows) == "table" and rows or {
+    }
+    local list, seen = {
+    }, {
+    }
+    for _, row in ipairs(rows) do
+        local text, value = tostring(row.text or ""), row.value
+        if text:find("not open right now", 1, true) then
+            continue
+        end
+        if mode.id == "story" then
+            local level = type(value) == "string" and value:match("^st:(.+):%a+$")
+            if level then
+                if not seen [level] then
+                    seen [level] = true
+                    table.insert(list, {
+                        text = (text:gsub("%s*%(%a+%)$", "")),
+                        value = "st:" .. level
+                    })
+                end
+            else
+                table.insert(list, {
+                    text = text,
+                    value = value
+                })
+            end
+        else
+            table.insert(list, {
+                text = text,
+                value = value
+            })
+        end
+    end
+    return list
+end
+
+-- Difficulties open for a story act; nothing to pick for other modes.
+function Farming.diffOptions(task)
+    if task.mode ~= "story" then
+        return {
+        }
+    end
+    local level = type(task.map) == "string" and task.map:match("^st:(.+)$")
+    if not level then
+        return {
+        }
+    end
+    local ok, rows = pcall(GUI.modeOptions, "story")
+    local list = {
+    }
+    for _, row in ipairs(ok and type(rows) == "table" and rows or {
+    }) do
+        local id, diff = tostring(row.value):match("^st:(.+):(%a+)$")
+        if id == level then
+            table.insert(list, {
+                text = diff,
+                value = diff
+            })
+        end
+    end
+    return list
+end
+
+function Farming.mapName(task)
+    for _, row in ipairs(Farming.mapOptions(task.mode)) do
+        if row.value == task.map then
+            local text = tostring(row.text):gsub("^%S+%s+Smart:.*$", "Smart"):gsub("^%S+%s+Progress:.*$", "Progress")
+            return text
+        end
+    end
+    return task.map ~= "" and tostring(task.map) or "Smart"
+end
+
+-- "Story → Planet Namak (Hard) ×50"
+function Farming.label(task, noRuns)
+    if type(task) ~= "table" then
+        return "?"
+    end
+    local mode = Farming.mode(task.mode)
+    local text = (mode and mode.name or tostring(task.mode)) .. " → " .. Farming.mapName(task)
+    if task.mode == "story" and type(task.map) == "string" and task.map:match("^st:") and task.diff ~= "" then
+        text = text .. " (" .. tostring(task.diff) .. ")"
+    end
+    if not noRuns then
+        text = text .. " ×" .. tostring(task.runs)
+    end
+    return text
+end
+
+-- The pick value Auto Farm reads for this task's map.
+function Farming.pickValue(task)
+    local map = type(task.map) == "string" and task.map or ""
+    if task.mode == "story" and map:match("^st:") then
+        return map .. ":" .. tostring(task.diff)
+    end
+    if task.mode == "portal" and map == "" then
+        return "smart"
+    end
+    return map
+end
+
+-- Nil when the task can start; otherwise the field that's missing or wrong.
+function Farming.check(task)
+    if type(task) ~= "table" then
+        return "Pick a Mode"
+    end
+    local mode = Farming.mode(task.mode)
+    if not mode then
+        return "Pick a Mode"
+    end
+    if mode.needsEvent and not Modes.eventNow() then
+        return "Mode: no event is running right now"
+    end
+    if mode.maps then
+        if task.map == nil then
+            return "Pick a Map"
+        end
+        local found = false
+        for _, row in ipairs(Farming.mapOptions(task.mode)) do
+            if row.value == task.map then
+                found = true
+                break
+            end
+        end
+        if not found then
+            return "Map: " .. tostring(task.map) .. " isn't open for you"
+        end
+    end
+    if task.mode == "story" and type(task.map) == "string" and task.map:match("^st:") then
+        local found = false
+        for _, row in ipairs(Farming.diffOptions(task)) do
+            if row.value == task.diff then
+                found = true
+            end
+        end
+        if not found then
+            return "Pick a Difficulty for " .. Farming.mapName(task)
+        end
+    end
+    local runs = tonumber(task.runs)
+    if not runs or runs < 1 or runs ~= math.floor(runs) then
+        return "Set Runs to a whole number, 1 or more"
+    end
+    return nil
+end
+
+-- What a task lays over Config: only its mode is on, with its map and the optional settings it changes.
+function Farming.overlayFor(task)
+    local values = {
+        dailyLoop = false,
+        pickPortal = "smart"
+    }
+    for _, mode in ipairs(Farming.MODES) do
+        values [mode.only] = false
+        for _, key in ipairs(mode.enable) do
+            values [key] = false
+        end
+    end
+    local mode = Farming.mode(task.mode)
+    values [mode.only] = true
+    for _, key in ipairs(mode.enable) do
+        values [key] = true
+    end
+    if mode.pick then
+        values [mode.pick] = Farming.pickValue(task)
+    end
+    local adv = type(task.adv) == "table" and task.adv or {
+    }
+    if adv.autoBuff == "on" or adv.autoBuff == "off" then
+        values.autoBuff = adv.autoBuff == "on"
+    end
+    if adv.buffKind == "auto" or adv.buffKind == "physical" or adv.buffKind == "magic" then
+        values.autoBuffKind = adv.buffKind
+    end
+    if mode.mm and (adv.matchmake == "on" or adv.matchmake == "off") then
+        values [mode.mm] = adv.matchmake == "on"
+    end
+    if mode.endEarly and (adv.endEarly == "on" or adv.endEarly == "off") then
+        values.infiniteStop = adv.endEarly == "on"
+    end
+    return values
+end
+
+function Farming.clearOverlay()
+    if Farming.overlaid then
+        for key, value in pairs(Farming.base) do
+            Config [key] = value
+        end
+    end
+    Farming.base, Farming.overlaid = {
+    }, false
+    Modes.lastScored = nil
+    if type(FarmHub.last) == "table" then
+        FarmHub.last.pick = nil
+    end
+end
+
+function Farming.applyOverlay(task)
+    Farming.clearOverlay()
+    for key, value in pairs(Farming.overlayFor(task)) do
+        Farming.base [key] = Config [key]
+        Config [key] = value
+    end
+    Farming.overlaid = true
+end
+
+-- Your own (manual Auto Farm) value of a setting, whatever a session lays over it.
+function Farming.baseValue(key)
+    if Farming.overlaid and Farming.base [key] ~= nil then
+        return Farming.base [key]
+    end
+    return Config [key]
+end
+
+-- A change you make to a setting: during a session it goes to your own settings, not the session's.
+function Farming.setBase(key, value)
+    if Farming.overlaid and Farming.base [key] ~= nil then
+        Farming.base [key] = value
+        return true
+    end
+    Config [key] = value
+    return false
+end
+
+-- What settings.json gets: always your own values.
+function Farming.savedConfig()
+    if not Farming.overlaid then
+        return Config
+    end
+    local copy = table.clone(Config)
+    for key, value in pairs(Farming.base) do
+        copy [key] = value
+    end
+    return copy
+end
+
+function Farming.active()
+    local run = Brain.farmRun
+    if type(run) == "table" and run.state == "running" then
+        return run
+    end
+    return nil
+end
+
+function Farming.title(run)
+    return run.source == "quick" and "Quick Start" or ("Routine " .. tostring(run.name))
+end
+
+function Farming.hold(why)
+    Brain.holdLobby = {
+        why = why,
+        at = os.time(),
+        farming = true
+    }
+end
+
+function Farming.sync()
+    if GUI.farmSync then
+        pcall(GUI.farmSync)
+    end
+end
+
+-- source: "quick" or "routine". Only one session at a time, manual Auto Farm included.
+function Farming.start(source, name, tasks)
+    local running = Farming.active()
+    if running then
+        return false, string.format("%s is running (%s). Press Stop first", Farming.title(running), Farming.progressText(true))
+    end
+    if type(tasks) ~= "table" or # tasks == 0 then
+        return false, "The queue is empty: add a task"
+    end
+    for index, task in ipairs(tasks) do
+        local why = Farming.check(task)
+        if why then
+            return false, (# tasks > 1 and ("Task " .. index .. ": ") or "") .. why
+        end
+    end
+    local manual = Config.master and Config.play and not Brain.holdLobby
+    local copy = Farming.copy(tasks)
+    for _, task in ipairs(copy) do
+        task.runs = math.floor(tonumber(task.runs) or 1)
+    end
+    Brain.farmRun = {
+        source = source,
+        name = name,
+        tasks = copy,
+        index = 1,
+        done = 0,
+        state = "running",
+        fails = 0,
+        counted = {
+        },
+        startedAt = os.time()
+    }
+    Farming.applyOverlay(copy [1])
+    Config.master, Config.play = true, true
+    Brain.holdLobby = nil
+    App.saveNow()
+    Farming.sync()
+    local text = string.format("%s started: %s%s", Farming.title(Brain.farmRun), Farming.label(copy [1]), # copy > 1 and string.format(" (task 1 of %d)", # copy) or "")
+    App.log(1, "FARM", text .. (manual and " · it replaces manual Auto Farm until it ends" or ""))
+    return true, text .. (App.where == "match" and " · it starts after this match" or "")
+end
+
+function Farming.stop(why)
+    why = why or "you pressed Stop"
+    local run = Brain.farmRun
+    local had = Farming.active() ~= nil
+    if had then
+        run.state, run.why = "stopped", why
+        Farming.clearOverlay()
+    end
+    Farming.hold(why)
+    App.saveNow()
+    Farming.sync()
+    App.log(1, "FARM", (had and (Farming.title(run) .. " stopped") or "farming stopped") .. ": " .. why .. " · no new run starts until you start again")
+    return true, App.where == "match" and "stopped: this match finishes, then no new run starts" or "stopped: no new run starts"
+end
+
+-- Stopped or paused: go on from the confirmed count.
+function Farming.retry()
+    local run = Brain.farmRun
+    if type(run) ~= "table" or run.state == "running" then
+        return false, run and "it's already running" or "nothing to retry"
+    end
+    if run.state == "finished" then
+        return false, "it finished: start it again instead"
+    end
+    local task = run.tasks [run.index]
+    local why = Farming.check(task)
+    if why then
+        return false, "Task " .. run.index .. ": " .. why
+    end
+    run.state, run.why, run.fails, run.noModeAt = "running", nil, 0, nil
+    Farming.applyOverlay(task)
+    Config.master, Config.play = true, true
+    Brain.holdLobby = nil
+    App.saveNow()
+    Farming.sync()
+    App.log(1, "FARM", string.format("%s goes on: %s", Farming.title(run), Farming.progressText(true)))
+    return true, "going on from " .. run.done .. "/" .. task.runs
+end
+
+function Farming.finish(why)
+    local run = Brain.farmRun
+    run.state, run.why = "finished", why
+    Farming.clearOverlay()
+    Farming.hold(Farming.title(run) .. " finished")
+    App.log(1, "FARM", string.format("%s finished: %d task%s done", Farming.title(run), # run.tasks, # run.tasks == 1 and "" or "s"))
+    Farming.sync()
+end
+
+function Farming.fail(why)
+    local run = Brain.farmRun
+    run.state, run.why = "failed", why
+    Farming.clearOverlay()
+    Farming.hold("farming paused: " .. why)
+    App.log(1, "FARM", string.format("%s paused: %s · press Retry to go on from %d/%d", Farming.title(run), why, run.done, run.tasks [run.index].runs))
+    App.saveNow()
+    Farming.sync()
+end
+
+function Farming.advance()
+    local run = Brain.farmRun
+    run.index, run.done, run.fails, run.noModeAt = run.index + 1, 0, 0, nil
+    if run.index > # run.tasks then
+        run.index = # run.tasks
+        run.done = run.tasks [run.index].runs
+        Farming.finish("all tasks done")
+        return
+    end
+    Farming.applyOverlay(run.tasks [run.index])
+    App.log(1, "FARM", string.format("%s: task %d of %d · %s", Farming.title(run), run.index, # run.tasks, Farming.label(run.tasks [run.index])))
+    Farming.sync()
+end
+
+function Farming.isLegend(id)
+    local level = id and Core.Levels [id]
+    local world = level and Core.Worlds [level.world]
+    return world ~= nil and world.legend_stage and true or false
+end
+
+-- Was this match a run of the task?
+function Farming.matches(task, key, kind)
+    key = tostring(key)
+    if task.mode == "story" or task.mode == "legend" then
+        if kind ~= "story" then
+            return false
+        end
+        if (task.mode == "legend") ~= Farming.isLegend(key:match("^st:(.+):%a+$")) then
+            return false
+        end
+        local pick = Farming.pickValue(task)
+        return pick == "" or pick == "progress" or key == pick
+    end
+    if task.mode == "raid" or task.mode == "infinite" then
+        return kind == task.mode and (task.map == "" or key == task.map)
+    end
+    if task.mode == "challenge" then
+        return kind == "challenge" or kind == "daily"
+    end
+    return kind == task.mode
+end
+
+-- A confirmed match result. id is the same for the same result, so a restart on the results screen
+-- doesn't count it twice.
+function Farming.onResult(key, kind, won, id)
+    local run = Farming.active()
+    if not run then
+        return nil
+    end
+    local task = run.tasks [run.index]
+    if not task then
+        return nil
+    end
+    if not Farming.matches(task, key, kind) then
+        App.log(1, "FARM", tostring(key) .. " isn't this task's mode: not counted")
+        return false
+    end
+    if not won then
+        App.log(1, "FARM", "lost: not counted, still " .. run.done .. "/" .. task.runs)
+        return false
+    end
+    run.counted = type(run.counted) == "table" and run.counted or {
+    }
+    if table.find(run.counted, id) then
+        return false
+    end
+    table.insert(run.counted, id)
+    while # run.counted > 30 do
+        table.remove(run.counted, 1)
+    end
+    run.done, run.fails, run.why = run.done + 1, 0, nil
+    App.log(1, "FARM", string.format("%s · task %d of %d · %s · %d/%d", Farming.title(run), run.index, # run.tasks, Farming.label(task, true), run.done, task.runs))
+    if run.done >= task.runs then
+        Farming.advance()
+    end
+    App.saveSoon()
+    return true
+end
+
+-- The lobby tried to start a run of this session and the game didn't take it.
+function Farming.launchFailed(mode, why)
+    local run = Farming.active()
+    if not run then
+        return
+    end
+    run.fails = (run.fails or 0) + 1
+    run.why = string.format("couldn't start %s: %s", type(mode) == "table" and tostring(mode.label) or "the run", tostring(why or "no reason given"))
+    if run.fails >= Farming.MAX_FAILS then
+        Farming.fail(run.why)
+    end
+end
+
+function Farming.launching()
+    local run = Farming.active()
+    if run then
+        run.noModeAt = nil
+    end
+end
+
+-- Nothing of this session's mode can be played right now.
+function Farming.noMode(text)
+    local run = Farming.active()
+    if not run then
+        return
+    end
+    run.noModeAt = run.noModeAt or os.time()
+    run.why = tostring(text)
+    if os.time() - run.noModeAt >= Farming.NO_MODE_WAIT then
+        Farming.fail(Farming.label(run.tasks [run.index], true) .. " can't be played: " .. tostring(text))
+    end
+end
+
+-- After a teleport or a restart: lay the running task over your settings again.
+function Farming.resume()
+    local run = Brain.farmRun
+    if type(run) ~= "table" or type(run.tasks) ~= "table" or # run.tasks == 0 then
+        Brain.farmRun = nil
+        return
+    end
+    run.index = math.clamp(math.floor(tonumber(run.index) or 1), 1, # run.tasks)
+    run.done = math.max(0, math.floor(tonumber(run.done) or 0))
+    if run.state == "running" then
+        Farming.applyOverlay(run.tasks [run.index])
+    end
+end
+
+function Farming.progressText(short)
+    local run = Brain.farmRun
+    if type(run) ~= "table" or type(run.tasks) ~= "table" or # run.tasks == 0 then
+        return "Nothing running. Set it up and press Start."
+    end
+    local task = run.tasks [run.index] or run.tasks [1]
+    local line = string.format("Task %d of %d · %s · %d/%d", run.index, # run.tasks, Farming.label(task, true), run.done, task.runs)
+    if short then
+        return line
+    end
+    local title = Farming.title(run)
+    if run.state == "running" then
+        return title .. " · " .. line .. (run.why and ("\nWaiting: " .. run.why) or "")
+    elseif run.state == "finished" then
+        return string.format("%s finished: %d task%s done.", title, # run.tasks, # run.tasks == 1 and "" or "s")
+    elseif run.state == "failed" then
+        return string.format("%s paused · %s\nWhy: %s\nFix it, then press Retry to go on from %d/%d.", title, line, tostring(run.why), run.done, task.runs)
+    end
+    return string.format("%s stopped · %s\nRetry goes on from %d/%d.", title, line, run.done, task.runs)
+end
+
+-- Saved routines live in Config.routines: { { name =, tasks = { task, … } }, … }.
+function Farming.routines()
+    if type(Config.routines) ~= "table" then
+        Config.routines = {
+        }
+    end
+    return Config.routines
+end
+
+function Farming.routine(name)
+    for index, routine in ipairs(Farming.routines()) do
+        if type(routine) == "table" and routine.name == name then
+            return routine, index
+        end
+    end
+    return nil
+end
+
+-- Save under name; oldName renames that routine. Returns ok, message.
+function Farming.saveRoutine(oldName, name, tasks)
+    name = tostring(name or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if name == "" then
+        return false, "Type a name for the routine first"
+    end
+    local other = Farming.routine(name)
+    local own = oldName and oldName ~= "" and Farming.routine(oldName) or nil
+    if other and other ~= own then
+        if own then
+            return false, "Another routine is already called " .. name
+        end
+        own = other
+    end
+    if own then
+        own.name, own.tasks = name, Farming.copy(tasks or {
+        })
+    else
+        table.insert(Farming.routines(), {
+            name = name,
+            tasks = Farming.copy(tasks or {
+            })
+        })
+    end
+    Config.routineSel = name
+    App.saveNow()
+    return true, (own and oldName and oldName ~= "" and oldName ~= name) and ("renamed to " .. name) or ("saved: " .. name)
+end
+
+function Farming.deleteRoutine(name)
+    local routine, index = Farming.routine(name)
+    if not routine then
+        return false
+    end
+    table.remove(Farming.routines(), index)
+    if Config.routineSel == name then
+        Config.routineSel = ""
+    end
+    App.saveNow()
+    return true
+end
+
 function FarmHub.run()
     App.status("Mode", "in the lobby")
     local now = Utils.now()
@@ -28418,15 +29188,29 @@ function FarmHub.run()
                             App.log(1, "ERROR", "charm: " .. tostring(res))
                         end
                         if not (alreadyInLobby and alreadyInLobby.Value) then
+                            pcall(Farming.launching)
                             local launched, launchError = pcall(FarmHub.launch, value)
                             if not launched then App.log(1, "ERROR", "launch: " .. tostring(launchError)) end
+                            -- FarmHub.launch only comes back when no teleport followed.
+                            if not launched or launchError == false then
+                                pcall(Farming.launchFailed, value, launched and Farming.lastWhy or tostring(launchError))
+                            end
                         end
                     end
                 end
             elseif not Config.play then
                 App.status("Mode", "Auto Play is off")
             elseif not value then
-                App.status("Mode", Modes.onlyOn() and string.format("only %s is on and none can be played right now: waiting", Modes.onlyText()) or "nothing to play (all modes off or resting)")
+                local noModeText = Modes.onlyOn() and string.format("only %s is on and none can be played right now: waiting", Modes.onlyText()) or "nothing to play (all modes off or resting)"
+                App.status("Mode", noModeText)
+                if Farming.active() then
+                    local reasons = {
+                    }
+                    for _, why in pairs(Modes.skipped) do
+                        table.insert(reasons, tostring(why))
+                    end
+                    pcall(Farming.noMode, # reasons > 0 and table.concat(reasons, "; ") or noModeText)
+                end
             end
         else
             App.status("Mode", Brain.holdLobby and ("held in the lobby: " .. tostring(Brain.holdLobby.why)) or "paused")
@@ -42096,6 +42880,13 @@ function Match.finish()
             end
         end
     end
+    do
+        local farmId = string.format("%s:%s:%s:%s", tostring(game.JobId), tostring(stats.time_taken or "?"), tostring(stats.waves_completed or wave or "?"), tostring(victory))
+        local ok, res = pcall(Farming.onResult, key, Match.kind, victory, farmId)
+        if not ok then
+            App.log(1, "ERROR", "farming queue: " .. tostring(res))
+        end
+    end
     local mode = nil
     pcall(function()
         mode = Modes.pick()
@@ -43935,7 +44726,8 @@ end
 -- changing a page or group label must never change a player's profile keys.
 GUI.NAV_SCHEMA = {
     { Name = "Home", Icon = "house" },
-    { Name = "Farm", Icon = "gamepad-2", Pages = {
+    { Name = "Farming", Icon = "gamepad-2", Pages = {
+        { "Quick Start", "play" }, { "Routines", "list-ordered" },
         { "Stages", "map" }, { "Challenges", "trophy" }, { "Events", "sun" },
         { "Party", "users" }, { "Rules", "sliders-horizontal" },
     } },
@@ -43966,17 +44758,29 @@ GUI.LAYOUT = {
         ["Every part"] = { "Activity", "Systems", "Automation status", "Right" },
     },
     Play = {
-        Overview = { "Farm", "Stages", "Mode selection", "Left" },
-        ["Story and Legend Stages"] = { "Farm", "Stages", "Story & Legend", "Right" },
-        ["Infinite and Portals"] = { "Farm", "Stages", "Infinite & Portals", "Left" },
-        ["Raids and Dungeon"] = { "Farm", "Stages", "Raids & Dungeon", "Right" },
-        Challenges = { "Farm", "Challenges", "Challenge rules", "Left" },
-        Matchmaking = { "Farm", "Party", "Find players", "Left" },
-        ["Summer Skins and Stars"] = { "Farm", "Events", "Skins & stars", "Right" },
-        ["Fool's Hunt"] = { "Farm", "Events", "Event progress", "Right" },
+        Overview = { "Farming", "Stages", "Mode selection", "Left" },
+        ["Story and Legend Stages"] = { "Farming", "Stages", "Story & Legend", "Right" },
+        ["Infinite and Portals"] = { "Farming", "Stages", "Infinite & Portals", "Left" },
+        ["Raids and Dungeon"] = { "Farming", "Stages", "Raids & Dungeon", "Right" },
+        Challenges = { "Farming", "Challenges", "Challenge rules", "Left" },
+        Matchmaking = { "Farming", "Party", "Find players", "Left" },
+        ["Summer Skins and Stars"] = { "Farming", "Events", "Skins & stars", "Right" },
+        ["Fool's Hunt"] = { "Farming", "Events", "Event progress", "Right" },
         ["What it plays next (gems a minute)"] = { "Battle", "Planner", "Mode ranking", "Left" },
         ["Run records"] = { "Activity", "History", "Completed runs", "Left" },
-        Advanced = { "Farm", "Rules", "Mode priorities", "Left", true },
+        Advanced = { "Farming", "Rules", "Mode priorities", "Left", true },
+    },
+    ["Quick Start"] = {
+        Overview = { "Farming", "Quick Start", "Quick Start", "Left" },
+        Progress = { "Farming", "Quick Start", "Progress", "Right" },
+        ["Advanced Settings"] = { "Farming", "Quick Start", "Advanced Settings", "Right", true },
+    },
+    Routines = {
+        Overview = { "Farming", "Routines", "Routine", "Left" },
+        Queue = { "Farming", "Routines", "Queue", "Left" },
+        Progress = { "Farming", "Routines", "Progress", "Right" },
+        ["Task settings"] = { "Farming", "Routines", "Task settings", "Right" },
+        ["Advanced for this task"] = { "Farming", "Routines", "Advanced for this task", "Right", true },
     },
     Goals = {
         Overview = { "Units", "Goals", "Current goal", "Left" },
@@ -44036,8 +44840,8 @@ GUI.LAYOUT = {
 }
 
 GUI.CONTROL_LAYOUT = {
-    ["Keep Playing Daily"] = { "Farm", "Challenges", "Daily challenge", "Right" },
-    ["Daily In A Kill Box"] = { "Farm", "Challenges", "Daily challenge", "Right" },
+    ["Keep Playing Daily"] = { "Farming", "Challenges", "Daily challenge", "Right" },
+    ["Daily In A Kill Box"] = { "Farming", "Challenges", "Daily challenge", "Right" },
     ["Gems To Keep"] = { "Units", "Summon", "Snipe budget", "Left" },
     ["Pearls To Keep"] = { "Units", "Summon", "Snipe budget", "Left" },
     ["Legacy Gems To Keep"] = { "Units", "Summon", "Snipe budget", "Left" },
@@ -44136,6 +44940,8 @@ GUI.PAGE_HELP = {
     Fuse = "1. Pick the target unit. 2. Check the fodder list. 3. Turn the switch on. Fodder units are used up for good.",
     Battle = "Battle automation must be ON for everything greyed out below it. To change your team: Planner (next page).",
     Activity = "",
+    ["Quick Start"] = "",
+    Routines = "",
     Performance = "",
     Settings = "",
 }
@@ -44150,7 +44956,7 @@ function GUI.prepareNavigation(window)
             for _, spec in ipairs(section.Pages) do
                 entry.Pages[spec[1]] = root:CreateSubTab({
                     Name = spec[1], Icon = spec[2],
-                    EmptyText = section.Name == "Farm" and spec[1] == "Events"
+                    EmptyText = section.Name == "Farming" and spec[1] == "Events"
                         and "No supported event is currently available." or "Waiting for game data.",
                 })
             end
@@ -44176,7 +44982,7 @@ function GUI.sectionSpec(page)
     local route = GUI.LAYOUT[page.Name]
     local spec = route and route[page.GroupName]
     if spec then return spec end
-    if page.Name == "Play" then return { "Farm", "Events", page.GroupName, "Left" } end
+    if page.Name == "Play" then return { "Farming", "Events", page.GroupName, "Left" } end
     if page.Name == "TESTING" then return { "TESTING", "", page.GroupName, "Left" } end
     if page.Name == "Updates" then
         return { "Settings", "Updates", page.GroupName, "Left", page.SectionCount > 1 }
@@ -44225,7 +45031,7 @@ end
 function GUI.shortcuts()
     local block = GUI.block("Home", "", "Go to", "Left")
     local links = {
-        { "Modes", "Farm", "Stages" }, { "Goals", "Units", "Goals" }, { "Summon", "Units", "Summon" },
+        { "Modes", "Farming", "Stages" }, { "Goals", "Units", "Goals" }, { "Summon", "Units", "Summon" },
         { "Fusion", "Units", "Fusion" }, { "Planner", "Battle", "Planner" }, { "Logs", "Activity", "Log" },
     }
     for first = 1, #links, 3 do
@@ -44778,7 +45584,7 @@ function GUI.page(window, name, icon)
             ["Save Settings"] = "save", ["Unload"] = "power",
         }
         local displayName, shortDesc = GUI.controlText(title, desc)
-        local primary = { ["Simulate Now"] = true, ["Start Farming Again"] = true }
+        local primary = { ["Simulate Now"] = true, ["Start Farming Again"] = true, ["Start Farming"] = true, ["Start Routine"] = true }
         return GUI.controlGroup(self, title):CreateButton({
             Name = displayName, Desc = shortDesc, Tooltip = desc, Icon = icons[title] or "chevron-right",
             Style = primary[title] and "Primary" or nil,
@@ -44876,7 +45682,7 @@ function GUI.window(Airflow)
     GUI.prepareNavigation(window)
     GUI.block("Home", "", "Start here", "Left")
     GUI.block("Battle", "Planner", "Plan", "Left")
-    GUI.skipInfo = GUI.paragraph(GUI.block("Farm", "Rules", "Unavailable modes", "Right"), "Waiting for the first plan.")
+    GUI.skipInfo = GUI.paragraph(GUI.block("Farming", "Rules", "Unavailable modes", "Right"), "Waiting for the first plan.")
     local controller = { Native = window }
     function controller:Tab(_, name)
         local page = GUI.page(window, name)
@@ -45377,6 +46183,315 @@ function GUI.modeOptions(arg1)
     end
     return list
 end
+-- ===== Farming tab: the task form shared by Quick Start and the routine editor =====
+GUI.FARM_ADV = {
+    {
+        key = "autoBuff",
+        title = "Auto Buff For This Farm",
+        desc = "Same as Auto Farm uses your Battle setting; On or Off only for this farm",
+        rows = {
+            {
+                "Same as Auto Farm",
+                "same"
+            },
+            {
+                "On",
+                "on"
+            },
+            {
+                "Off",
+                "off"
+            }
+        }
+    },
+    {
+        key = "buffKind",
+        title = "Buff Type For This Farm",
+        desc = "Which buffers Auto Buff uses on this farm",
+        rows = {
+            {
+                "Same as Auto Farm",
+                "same"
+            },
+            {
+                "Auto",
+                "auto"
+            },
+            {
+                "Physical",
+                "physical"
+            },
+            {
+                "Magic",
+                "magic"
+            }
+        }
+    },
+    {
+        key = "matchmake",
+        title = "Matchmaking For This Farm",
+        desc = "Find other players: Legend Stages, Raids, Infinite, Challenges and the Event",
+        rows = {
+            {
+                "Same as Auto Farm",
+                "same"
+            },
+            {
+                "On",
+                "on"
+            },
+            {
+                "Off",
+                "off"
+            }
+        }
+    },
+    {
+        key = "endEarly",
+        title = "End Infinite Early For This Farm",
+        desc = "Infinite only: end the run once the daily gems are in",
+        rows = {
+            {
+                "Same as Auto Farm",
+                "same"
+            },
+            {
+                "On",
+                "on"
+            },
+            {
+                "Off",
+                "off"
+            }
+        }
+    }
+}
+
+function GUI.farmForm(tab, onChange)
+    local form = {
+        task = Farming.newTask(),
+        adv = {
+        },
+        mapSig = nil
+    }
+    local function rowIndex(rows, value)
+        for index, row in ipairs(rows) do
+            if row.value == value then
+                return index
+            end
+        end
+        return nil
+    end
+    local function modeRows()
+        local rows = {
+        }
+        for _, mode in ipairs(Farming.MODES) do
+            local text = mode.name
+            if mode.needsEvent and not Modes.eventNow() then
+                text = text .. " (none running)"
+            end
+            table.insert(rows, {
+                text = text,
+                value = mode.id
+            })
+        end
+        return rows
+    end
+    local function diffRows()
+        local rows = Farming.diffOptions(form.task)
+        if # rows == 0 then
+            return {
+                {
+                    text = form.task.mode == "story" and (form.task.map == "" or form.task.map == "progress") and "Set by Smart / Progress"
+                        or form.task.mode == "story" and "Pick an act first" or "Not needed for this mode",
+                    value = ""
+                }
+            }
+        end
+        return rows
+    end
+    local function changed()
+        if onChange then
+            onChange(form.task)
+        end
+    end
+    function form.refreshDiff()
+        local real = Farming.diffOptions(form.task)
+        if # real > 0 and not rowIndex(real, form.task.diff) then
+            form.task.diff = real [1].value
+        elseif # real == 0 then
+            form.task.diff = ""
+        end
+        if form.diff then
+            form.diff.Refresh(diffRows(), form.task.diff)
+        end
+    end
+    -- reset: the mode changed, so a map of another mode makes no sense; otherwise a saved map is kept
+    -- even while the game's data isn't loaded yet (Start then says if it isn't open).
+    function form.refreshMaps(reset)
+        local rows = Farming.mapOptions(form.task.mode)
+        if reset and not rowIndex(rows, form.task.map) then
+            form.task.map = rows [1] and rows [1].value or ""
+        end
+        local parts = {
+            form.task.mode,
+            tostring(form.task.map)
+        }
+        for _, row in ipairs(rows) do
+            table.insert(parts, tostring(row.value))
+        end
+        local sig = table.concat(parts, "|")
+        if form.map and (reset or sig ~= form.mapSig) then
+            form.map.Refresh(rows, form.task.map)
+            form.mapSig = sig
+            form.refreshDiff()
+        end
+    end
+    function form.buildMain()
+        local rows = modeRows()
+        form.mode = tab:Dropdown("Mode", "What to farm. Only the modes Auto Farm can play", rows, rowIndex(rows, form.task.mode) or 1, function(_text, value)
+            form.task.mode = value
+            form.refreshMaps(true)
+            form.refreshDiff()
+            changed()
+        end)
+        local maps = Farming.mapOptions(form.task.mode)
+        form.map = tab:Dropdown("Map", "Only the maps you have open for this mode. A story act gets its difficulty below", maps, rowIndex(maps, form.task.map) or 1, function(_text, value)
+            form.task.map = value
+            form.refreshDiff()
+            changed()
+        end)
+        local diffs = diffRows()
+        form.diff = tab:Dropdown("Difficulty", "Normal or Hard, for a story act", diffs, rowIndex(diffs, form.task.diff) or 1, function(_text, value)
+            if value ~= "" then
+                form.task.diff = value
+            end
+            changed()
+        end)
+        form.runs = tab:Input("Runs", "How many won runs (Infinite: finished runs) before it stops or moves on", "e.g. 50", tostring(form.task.runs), function(text)
+            form.task.runs = tonumber((tostring(text):gsub("%s", ""))) or 0
+            changed()
+        end)
+    end
+    function form.buildAdv()
+        for _, spec in ipairs(GUI.FARM_ADV) do
+            local rows = {
+            }
+            for _, row in ipairs(spec.rows) do
+                table.insert(rows, {
+                    text = row [1],
+                    value = row [2]
+                })
+            end
+            form.adv [spec.key] = tab:Dropdown(spec.title, spec.desc, rows, 1, function(_text, value)
+                form.task.adv [spec.key] = value
+                changed()
+            end)
+        end
+    end
+    function form.load(task)
+        task = type(task) == "table" and Farming.mode(task.mode) and task or Farming.newTask(form.task and form.task.mode)
+        form.task = Farming.copy(task)
+        form.task.adv = type(form.task.adv) == "table" and form.task.adv or {
+        }
+        for key, value in pairs(Farming.SAME) do
+            if form.task.adv [key] == nil then
+                form.task.adv [key] = value
+            end
+        end
+        form.task.map = type(form.task.map) == "string" and form.task.map or ""
+        form.task.diff = type(form.task.diff) == "string" and form.task.diff or ""
+        if form.mode then
+            form.mode.Refresh(modeRows(), form.task.mode)
+        end
+        form.mapSig = nil
+        form.refreshMaps(false)
+        form.refreshDiff()
+        if form.runs then
+            pcall(form.runs.Set, tostring(form.task.runs), true)
+        end
+        for key, handle in pairs(form.adv) do
+            pcall(handle.Set, form.task.adv [key], true)
+        end
+        changed()
+    end
+    function form.get()
+        return Farming.copy(form.task)
+    end
+    return form
+end
+
+-- Manual Auto Farm controls always show your own settings, not the ones a session lays over them.
+function GUI.farmSync()
+    local ui = GUI.UI
+    for _, spec in ipairs(GUI.farmModeSpecs or {
+    }) do
+        local handle = ui [spec.only .. "Mode"]
+        if handle then
+            local label = spec.enable and "Off" or "On"
+            for _, key in ipairs(spec.enable or {
+            }) do
+                if Farming.baseValue(key) then
+                    label = "On"
+                end
+            end
+            if Farming.baseValue(spec.only) then
+                label = "Only this"
+            end
+            pcall(handle.Set, label, true)
+        end
+    end
+    for _, key in ipairs({
+        "pickStory",
+        "pickLegend",
+        "pickRaid",
+        "pickInfinite",
+        "pickPortal"
+    }) do
+        local handle = ui [key .. "Pick"]
+        if handle then
+            pcall(handle.Set, Farming.baseValue(key), true)
+        end
+    end
+    for _, key in ipairs({
+        "master",
+        "play",
+        "autoBuff",
+        "infiniteStop",
+        "dungeonStart",
+        "dailyLoop",
+        "mmRaid",
+        "mmInfinite",
+        "mmLegend",
+        "mmEvent",
+        "dailyMatch"
+    }) do
+        local handle = ui [key]
+        if handle and type(Farming.baseValue(key)) == "boolean" then
+            pcall(handle.Set, Farming.baseValue(key), true)
+        end
+    end
+    if ui.autoBuffKind then
+        pcall(ui.autoBuffKind.Set, ({
+            auto = "Auto",
+            physical = "Physical",
+            magic = "Magic"
+        }) [tostring(Farming.baseValue("autoBuffKind"))] or "Auto", true)
+    end
+    GUI.farmProgress()
+end
+
+function GUI.farmProgress()
+    local live = GUI.LIVE
+    local text = Farming.progressText()
+    if live.farmQuick then
+        pcall(live.farmQuick.Set, text)
+    end
+    if live.farmRoutine then
+        pcall(live.farmRoutine.Set, text)
+    end
+end
+
 GUI.TITLE = "awaqwaa script - awaqwaa airflow"
 
 function GUI.lbTargetOptions()
@@ -45705,7 +46820,10 @@ function GUI.build()
     GUI.Win = window
     local ui, live = GUI.UI, GUI.LIVE
     local function helper(arg1, arg2)
-        Config [arg1] = arg2
+        Farming.setBase(arg1, arg2)
+        if (arg1 == "master" or arg1 == "play") and arg2 == false and Farming.active() then
+            pcall(Farming.stop, arg1 == "master" and "you turned Auto Farm off" or "you turned Auto Play off")
+        end
         App.saveSoon()
     end
     local function helper2(arg1, arg2, arg3, arg4)
@@ -45765,7 +46883,7 @@ function GUI.build()
             App.log(1, "MODE", "Turn everything on: " .. (#turned > 0 and table.concat(turned, ", ") or "all were on already") .. (held and " · lobby hold cleared" or ""))
             helper6("Start", #turned > 0 and (#turned .. " switch" .. (#turned == 1 and "" or "es") .. " turned on" .. (held and ", lobby hold cleared" or "")) or (held and "lobby hold cleared: farming again" or "everything was already on"), "success")
         end,
-        modes = function() GUI.go("Farm", "Stages") end,
+        modes = function() GUI.go("Farming", "Stages") end,
         battle = function() GUI.go("Battle", "Controls") end,
         planner = function() GUI.go("Battle", "Planner") end,
     })
@@ -45822,6 +46940,12 @@ function GUI.build()
                 end
             end
         end
+        GUI.farmModeSpecs = GUI.farmModeSpecs or {
+        }
+        table.insert(GUI.farmModeSpecs, {
+            only = arg4,
+            enable = arg3
+        })
         ui [arg4 .. "Mode"] = tab:Dropdown(arg1, arg2, value, num, function(arg1)
             helper(arg4, arg1 == "Only this")
             for _, value in ipairs(arg3 or {
@@ -46038,6 +47162,290 @@ function GUI.build()
         App.saveNow()
         helper6("Modes", "stats reset", "success")
     end)
+    do
+        local tab = window:Tab("🚀", "Quick Start")
+        helper7(tab, "Pick a mode and a map, set the runs, press Start Farming. Your own Auto Farm settings (Stages, Challenges, Events, Party, Rules) stay as they are and come back when it ends.")
+        local summary
+        local function saved(task)
+            Config.qsTask = Farming.copy(task)
+            App.saveSoon()
+            if summary then
+                local why = Farming.check(task)
+                summary.Set(why and ("Missing: " .. why) or ("Ready: " .. Farming.label(task)))
+            end
+        end
+        local form = GUI.farmForm(tab, saved)
+        form.buildMain()
+        summary = tab:Label("…")
+        tab:Button("▶️", "Start Farming", "Applies the settings above and starts farming in one click. Only one farm runs at a time", function()
+            local task = form.get()
+            local why = Farming.check(task)
+            if why then
+                helper6("Quick Start", "Missing: " .. why, "warning")
+                return
+            end
+            local ok, text = Farming.start("quick", "Quick Start", {
+                task
+            })
+            helper6("Quick Start", text, ok and "success" or "warning")
+        end)
+        tab:Button("⏹️", "Stop Farming", "The run going now finishes; no new run or task starts", function()
+            local _, text = Farming.stop("you pressed Stop")
+            helper6("Farming", text, "default")
+        end)
+        tab:Button("🔁", "Retry", "After a stop or a pause: go on from the confirmed count", function()
+            local ok, text = Farming.retry()
+            helper6("Farming", text, ok and "success" or "warning")
+        end)
+        tab:Section("Progress")
+        live.farmQuick = tab:Paragraph(Farming.progressText())
+        tab:Section("Advanced Settings")
+        form.buildAdv()
+        form.load(Config.qsTask)
+        GUI.farmForms = GUI.farmForms or {
+        }
+        table.insert(GUI.farmForms, form)
+    end
+    do
+        local tab = window:Tab("📋", "Routines")
+        helper7(tab, "1. New Routine. 2. Add Task, set it on the right, Save Task (repeat). 3. Type a name, Save Routine. 4. Start Routine: tasks run top to bottom.")
+        local current = {
+            name = "",
+            tasks = {
+            }
+        }
+        local editing, selected, nameText, dirty = nil, 0, "", false
+        local deleteAsk = 0
+        local routineDrop, nameInput, queueText, taskDrop, editLabel, form
+        local function routineRows()
+            local rows = {
+                {
+                    text = "New routine (not saved yet)",
+                    value = ""
+                }
+            }
+            for _, routine in ipairs(Farming.routines()) do
+                if type(routine) == "table" and type(routine.name) == "string" then
+                    local count = type(routine.tasks) == "table" and # routine.tasks or 0
+                    table.insert(rows, {
+                        text = string.format("%s · %d task%s", routine.name, count, count == 1 and "" or "s"),
+                        value = routine.name
+                    })
+                end
+            end
+            return rows
+        end
+        local function refreshQueue()
+            local lines, rows = {
+            }, {
+            }
+            for index, task in ipairs(current.tasks) do
+                local line = string.format("%d. %s", index, Farming.label(task))
+                table.insert(lines, line)
+                table.insert(rows, {
+                    text = line,
+                    value = index
+                })
+            end
+            if # rows == 0 then
+                selected = 0
+                rows = {
+                    {
+                        text = "No tasks yet",
+                        value = 0
+                    }
+                }
+            else
+                selected = math.clamp(selected, 1, # rows)
+            end
+            queueText.Set((# lines > 0 and table.concat(lines, "\n") or "No tasks yet: press Add Task.") .. (dirty and "\n(not saved: type a name and press Save Routine)" or ""))
+            taskDrop.Refresh(rows, selected)
+        end
+        local function refreshRoutines()
+            routineDrop.Refresh(routineRows(), current.name)
+        end
+        local function editText()
+            editLabel.Set(editing and string.format("Editing task %d: change it, then Save Task", editing) or "New task: set it, then Save Task adds it to the end of the queue")
+        end
+        local function loadRoutine(name)
+            local routine = Farming.routine(name)
+            current = {
+                name = routine and routine.name or "",
+                tasks = routine and type(routine.tasks) == "table" and Farming.copy(routine.tasks) or {
+                }
+            }
+            nameText, dirty, editing, selected = current.name, false, nil, 1
+            pcall(nameInput.Set, nameText, true)
+            refreshQueue()
+            form.load(nil)
+            editText()
+        end
+        -- A routine that is already saved keeps every change to its queue at once.
+        local function keep()
+            if current.name ~= "" and Farming.routine(current.name) then
+                Farming.saveRoutine(current.name, current.name, current.tasks)
+                dirty = false
+                refreshRoutines()
+            else
+                dirty = true
+            end
+        end
+        routineDrop = tab:Dropdown("Saved Routine", "Pick a routine to see, change or start it", routineRows(), 1, function(_text, value)
+            Config.routineSel = value
+            App.saveSoon()
+            loadRoutine(value)
+        end)
+        nameInput = tab:Input("Routine Name", "Type a name, then Save Routine. A new name on a saved routine renames it", "My routine", "", function(text)
+            nameText = tostring(text or "")
+        end)
+        tab:Button("➕", "New Routine", "An empty routine: add tasks, name it, Save Routine", function()
+            Config.routineSel = ""
+            loadRoutine("")
+            refreshRoutines()
+            helper6("Routines", "new routine: add tasks, type a name, Save Routine", "default")
+        end)
+        tab:Button("💾", "Save Routine", "Saves the queue under the name above. It stays after a restart", function()
+            local ok, text = Farming.saveRoutine(current.name, nameText, current.tasks)
+            if ok then
+                current.name, dirty = Config.routineSel, false
+                refreshRoutines()
+                refreshQueue()
+            end
+            helper6("Routines", text, ok and "success" or "warning")
+        end)
+        tab:Button("🗑️", "Delete Routine", "Press twice within 5 seconds. Deleting a routine can't be undone", function()
+            if current.name == "" or not Farming.routine(current.name) then
+                helper6("Routines", "this routine isn't saved, nothing to delete", "default")
+                return
+            end
+            if os.clock() - deleteAsk > 5 then
+                deleteAsk = os.clock()
+                helper6("Routines", "press Delete Routine again to delete " .. current.name, "warning")
+                return
+            end
+            deleteAsk = 0
+            local name = current.name
+            Farming.deleteRoutine(name)
+            loadRoutine("")
+            refreshRoutines()
+            helper6("Routines", "deleted: " .. name, "success")
+        end)
+        tab:Section("Queue")
+        queueText = tab:Paragraph("…")
+        taskDrop = tab:Dropdown("Task", "The task Edit, Move and Delete act on", {
+            {
+                text = "No tasks yet",
+                value = 0
+            }
+        }, 1, function(_text, value)
+            selected = tonumber(value) or 0
+        end)
+        tab:Button("➕", "Add Task", "A new task at the end of the queue: set it on the right, then Save Task", function()
+            editing = nil
+            form.load(nil)
+            editText()
+        end)
+        tab:Button("✏️", "Edit Task", "Opens the task picked above on the right", function()
+            if not current.tasks [selected] then
+                helper6("Routines", "pick a task first", "warning")
+                return
+            end
+            editing = selected
+            form.load(current.tasks [selected])
+            editText()
+        end)
+        local function move(step)
+            local other = selected + step
+            if not current.tasks [selected] or not current.tasks [other] then
+                return
+            end
+            current.tasks [selected], current.tasks [other] = current.tasks [other], current.tasks [selected]
+            if editing == selected then
+                editing = other
+            elseif editing == other then
+                editing = selected
+            end
+            selected = other
+            keep()
+            refreshQueue()
+            editText()
+        end
+        tab:Button("⬆️", "Move Up", "Moves the picked task one place up", function()
+            move(- 1)
+        end)
+        tab:Button("⬇️", "Move Down", "Moves the picked task one place down", function()
+            move(1)
+        end)
+        tab:Button("❌", "Delete Task", "Takes the picked task out of the queue", function()
+            if not current.tasks [selected] then
+                helper6("Routines", "pick a task first", "warning")
+                return
+            end
+            local task = table.remove(current.tasks, selected)
+            if editing == selected then
+                editing = nil
+                form.load(nil)
+            elseif editing and editing > selected then
+                editing = editing - 1
+            end
+            keep()
+            refreshQueue()
+            editText()
+            helper6("Routines", "removed: " .. Farming.label(task), "default")
+        end)
+        tab:Button("▶️", "Start Routine", "Runs the tasks top to bottom: each one until its runs are done, then the next. Only one farm runs at a time", function()
+            local ok, text = Farming.start("routine", current.name ~= "" and current.name or "(not saved)", current.tasks)
+            helper6("Routine", text, ok and "success" or "warning")
+        end)
+        tab:Button("⏹️", "Stop Routine", "The run going now finishes; no new run or task starts", function()
+            local _, text = Farming.stop("you pressed Stop")
+            helper6("Routine", text, "default")
+        end)
+        tab:Button("🔁", "Retry Routine", "After a stop or a pause: go on from the confirmed count of the current task", function()
+            local ok, text = Farming.retry()
+            helper6("Routine", text, ok and "success" or "warning")
+        end)
+        tab:Section("Progress")
+        live.farmRoutine = tab:Paragraph(Farming.progressText())
+        tab:Section("Task settings")
+        form = GUI.farmForm(tab, nil)
+        form.buildMain()
+        editLabel = tab:Label("…")
+        tab:Button("✅", "Save Task", "Adds the new task to the queue, or saves the one you're editing", function()
+            local task = form.get()
+            local why = Farming.check(task)
+            if why then
+                helper6("Task", "Missing: " .. why, "warning")
+                return
+            end
+            task.runs = math.floor(tonumber(task.runs))
+            if editing and current.tasks [editing] then
+                current.tasks [editing] = task
+                selected = editing
+            else
+                table.insert(current.tasks, task)
+                selected = # current.tasks
+            end
+            editing = nil
+            keep()
+            refreshQueue()
+            form.load(nil)
+            editText()
+            helper6("Task", "saved: " .. Farming.label(task), "success")
+        end)
+        tab:Button("↩️", "Cancel", "Drops the changes on the right", function()
+            editing = nil
+            form.load(nil)
+            editText()
+        end)
+        tab:Section("Advanced for this task")
+        form.buildAdv()
+        loadRoutine(Config.routineSel)
+        refreshRoutines()
+        GUI.farmForms = GUI.farmForms or {
+        }
+        table.insert(GUI.farmForms, form)
+    end
     tab = window:Tab("🎯", "Goals")
     helper7(tab, "Which unit the farm is working toward and what it still needs. Pick a Focus to choose it yourself.")
     tab:Section("Focus")
@@ -46653,6 +48061,7 @@ function GUI.build()
             GUI.gfxApply()
         end)
     end
+    pcall(GUI.farmSync)
     tab = window:Tab("📰", "Updates")
     local info = { NEW = load.Theme.Success, IMPROVED = load.Theme.Accent, FIX = load.Theme.Warning }
     for _, value in ipairs(CHANGELOG) do
@@ -47314,6 +48723,14 @@ function GUI.update()
     if live.gfx then
         pcall(live.gfx.Set, GUI.gfxText())
     end
+    if live.farmQuick or live.farmRoutine then
+        pcall(GUI.farmProgress)
+    end
+    if GUI.farmForms and FarmHub.every("farmForms", 15) then
+        for _, form in ipairs(GUI.farmForms) do
+            pcall(form.refreshMaps, false)
+        end
+    end
     if live.totals then
         pcall(live.totals.Set, string.format("matches %d · wins %d · losses %d · gems %s · event coins %s", Brain.totals.matches or 0, Brain.totals.wins or 0, Brain.totals.losses or 0, Utils.fmt(Brain.totals.gems or 0), Utils.fmt(Brain.totals.coins or 0)))
     end
@@ -47404,6 +48821,7 @@ App.C, App.B, App.CFG, App.MT, App.HUB, App.ST, App.UNIT, App.MODE = Core, Brain
 App.SIM, App.ECON, App.GUI, App.TRAIN, App.ADV, App.DG, App.STR, App.HUNT = Simulator, Economy, GUI, Training, Adventure, Dungeon, Strategy, Hunt
 App.REPORT = Reports
 App.version = VERSION
+pcall(Farming.resume)
 pcall(GUI.gfxApply)
 task.spawn(GUI.build)
 task.spawn(function()
