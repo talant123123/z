@@ -1011,6 +1011,12 @@ table.insert(CHANGELOG, 1, {
             "NEW"
         },
         {
+            "🚦",
+            "Start here",
+            "Home opens with the main switch and four lines (Farm, Modes, Battle, Planner) that are green when on, with one line telling you what to press next and a Turn everything on button. Settings that do nothing while their main switch is off are greyed out, and the main switches say what they do.",
+            "NEW"
+        },
+        {
             "🧭",
             "One Plan block",
             "Battle → Planner shows the map and mode, your team and the planned team by slot with roles, the expected wave, a short reason, progress, and three buttons: Recalculate plan, Equip planned team, Restore my team. TESTING shows the three lineups for Fused Hero on Namek together.",
@@ -42883,6 +42889,7 @@ GUI.CONTROL_LAYOUT = {
     ["Simulate Now"] = { "Battle", "Planner", "Plan", "Left" },
     ["Equip Best Team"] = { "Battle", "Planner", "Plan", "Left" },
     ["Restore My Team"] = { "Battle", "Planner", "Plan", "Left" },
+    ["Auto Farm"] = { "Home", "", "Start here", "Left" },
     ["Go To Lobby"] = { "Home", "", "Farm control", "Left" },
     ["Start Farming Again"] = { "Home", "", "Farm control", "Left" },
     ["Log Level"] = { "Activity", "Log", "Logging", "Right" },
@@ -42890,8 +42897,18 @@ GUI.CONTROL_LAYOUT = {
 }
 
 GUI.SHORT_TEXT = {
-    ["Auto Farm"] = { "Auto Farm", "Choose modes, start runs and play automatically." },
-    ["Auto Play"] = { "Chain runs", "Start the next eligible stage after a run." },
+    ["Auto Farm"] = { "Auto Farm · main switch", "ON: picks modes and plays by itself. OFF: plays nothing." },
+    ["Auto Play"] = { "Start runs for me", "ON: launches the best mode, then the next run. OFF: you start runs." },
+    ["Auto Place"] = { "Place units", "Puts each unit where enemies stay in its range longest." },
+    ["Auto Upgrade"] = { "Upgrade units", "Buys the upgrade that adds the most damage per yen." },
+    ["Auto Abilities"] = { "Use abilities", "Casts buffs and damage abilities. Fusion needs this ON." },
+    ["Auto Start"] = { "Vote to start waves", "Votes to start once the first unit is placed." },
+    ["Smart Targeting"] = { "Smart targeting", "Control units hold the front, heavy hitters take the boss." },
+    ["Use The Simulator"] = { "Simulate before playing", "Predicts each mode with your team. The planner needs this ON." },
+    ["Search For Best Spots"] = { "Plan unit spots", "Tries spots for each attacker when a match starts." },
+    ["Plan Best Teams"] = { "Search for the best team", "Compares lineups built from all your units for the next mode." },
+    ["Farm Units"] = { "Buy farm units", "Places farm units while they pay back and the defense holds." },
+    ["Farm Waves To Spare"] = { "Farm payback margin", "A farm must pay back with this many waves to spare." },
     ["Story Map"] = { "Story map", "Smart clears new acts before replaying stages." },
     ["Legend Stage"] = { "Legend stage", "Smart picks stages that advance your goals." },
     ["Infinite Map"] = { "Infinite map", "Smart weighs daily gems and takedowns." },
@@ -42934,7 +42951,7 @@ GUI.SHORT_TEXT = {
     ["Restore My Team"] = { "Restore my team", "Put your own team back (lobby)." },
     ["Go To Lobby"] = { "Return to lobby", "Leave this run and hold future match starts." },
     ["Start Farming Again"] = { "Resume after lobby hold", "Clear the lobby hold and allow match starts." },
-    ["Battle AI"] = { "Battle automation", "Control placement and upgrades inside a match." },
+    ["Battle AI"] = { "Battle automation · main", "Must be ON, or nothing below is placed, upgraded or cast." },
     ["Ability Hold"] = { "Ability hold", "Wait this long for a boss or a crowd." },
     ["Smart Charm Equip"] = { "Choose charm automatically", "Prefer rewards when strong enough, damage when needed." },
     ["Smart Skins"] = { "Manage event skins", "Equip useful skins and sell spare ones listed here." },
@@ -42944,12 +42961,12 @@ GUI.SHORT_TEXT = {
 
 GUI.PAGE_HELP = {
     Home = "",
-    Play = "Enabled modes compete by rewards. Only this mode restricts the farm; Disabled skips a mode.",
-    Goals = "Choose an evolution target. Its items and takedowns take priority.",
-    Team = "Upgrade core units. Preview mode shows spending before you enable it.",
-    Summon = "Choose a target or banner, set reserves, then enable summons.",
-    Fuse = "Select a target and review its fodder before enabling fusion. Used units are consumed.",
-    Battle = "Control how the farm fights. Team predictions are under Planner.",
+    Play = "Set each kind to Enabled (may be played), Only this mode (nothing else is played) or Disabled (never). The second box picks the map.",
+    Goals = "1. Pick a unit to evolve (or leave Smart). 2. The farm then plays what drops its items and takedowns.",
+    Team = "1. Turn on Automatic upgrades. 2. Leave Preview on first to see what it would spend. 3. Turn Preview off to let it spend.",
+    Summon = "1. Pick the unit or banner. 2. Set how much currency to keep. 3. Turn the switch on. It stops at your reserve.",
+    Fuse = "1. Pick the target unit. 2. Check the fodder list. 3. Turn the switch on. Fodder units are used up for good.",
+    Battle = "Battle automation must be ON for everything greyed out below it. To change your team: Planner (next page).",
     Activity = "",
     Settings = "",
 }
@@ -43013,8 +43030,20 @@ end
 function GUI.controlDependency(name)
     if name == "Win Chance Needed" then return function() return Config.chSmart == true end end
     if name == "Daily In A Kill Box" then return function() return Config.dailyLoop == true end end
-    if name == "Ability Hold" then return function() return Config.actives == true end end
+    if name == "Ability Hold" then return function() return Config.battle == true and Config.actives == true end end
     if name == "Leave When Trained" then return function() return Config.trainTakedowns == true end end
+    -- Battle automation is the main switch of a match: with it off none of these does anything.
+    if name == "Auto Place" or name == "Auto Upgrade" or name == "Auto Abilities" or name == "Auto Start" or name == "Smart Targeting" then
+        return function() return Config.battle == true end
+    end
+    -- The planner is built on the simulator.
+    if name == "Search For Best Spots" or name == "Plan Best Teams" then
+        return function() return Config.sim == true end
+    end
+    if name == "Auto-Equip Best Team" then
+        return function() return Config.sim == true and Config.simTeams == true end
+    end
+    if name == "Farm Waves To Spare" then return function() return Config.farmUnits == true end end
 end
 
 function GUI.go(rootName, pageName)
@@ -43128,7 +43157,7 @@ end
 function GUI.planCard(group)
     local heading = group:CreateLabel({ Text = "<b>Plan</b>" })
     local cells = {}
-    for _, key in ipairs({ "Map & mode", "Current team", "Planned team", "Expected", "Why" }) do
+    for _, key in ipairs({ "Next step", "Map & mode", "Current team", "Planned team", "Expected", "Why" }) do
         cells[key] = group:CreateStatus({ Name = key, Value = "", Style = "Plain", Wrap = true, Visible = false })
     end
     local state = group:CreateStatus({ Name = "Calculation", Value = "", Style = "Plain", Wrap = true, Visible = false })
@@ -43144,6 +43173,7 @@ function GUI.planCard(group)
             if text ~= "" then native:Set(GUI.escape(text)) end
         end
         if data.plannedColor then cells["Planned team"]:SetColor(data.plannedColor) end
+        if data.stepColor then cells["Next step"]:SetColor(data.stepColor) end
         local status = tostring(data.state or "")
         state:SetVisible(status ~= "")
         if status ~= "" then state:Set(GUI.escape(status)) end
@@ -43166,6 +43196,18 @@ end
 function GUI.planView(col)
     local data = { title = "Plan" }
     local running = Simulator.progress
+    local busy = running and running.running and Utils.now() - (running.at or 0) < 180
+    -- One line that says what to press, or why a button would do nothing right now.
+    local function step(text, color)
+        data["Next step"], data.stepColor = text, col and color or nil
+    end
+    if busy then
+        step("Wait: the search is running (progress below).", col and col.gold)
+    elseif not (Config.sim and Config.simTeams) then
+        step("Turn ON \"Simulate before playing\" and \"Search for the best team\" (right column). The planner is off without them.", col and col.red)
+    elseif App.where ~= "lobby" then
+        step("You are in a match. The three buttons work in the lobby only; the plan below is the one made before this run.", col and col.sub)
+    end
     if running and running.running and Utils.now() - (running.at or 0) < 180 then
         data.progress = running.frac or 0
         data.state = string.format("%s · %d%% · %ds · %s", tostring(running.label), math.floor((running.frac or 0) * 100 + 0.5), math.floor(Utils.now() - (running.started or Utils.now())), tostring(running.text))
@@ -43187,8 +43229,19 @@ function GUI.planView(col)
     end
     if type(plan) ~= "table" then
         data["Map & mode"] = nextMode and (tostring(nextMode.label) .. " · not planned yet") or "waiting for the next mode"
-        data["Why"] = App.where == "lobby" and "Press Recalculate plan to simulate the next mode." or "The planner runs in the lobby."
+        if not data["Next step"] then
+            step("Press \"Recalculate plan\". It simulates the next mode and searches your units (about 10-30 s).", col and col.accent)
+        end
         return data
+    end
+    if not data["Next step"] then
+        if plan.better and Config.autoTeam and Config.play then
+            step("Nothing to press: the planned team is put on before the run and your own team comes back after it.", col and col.green)
+        elseif plan.better then
+            step("Press \"Equip planned team\" to put it on now. \"Restore my team\" brings yours back." .. (Config.autoTeam and "" or " Or turn ON \"Auto-equip before runs\"."), col and col.accent)
+        else
+            step("Nothing to press: your team is already the best one found. \"Recalculate plan\" searches again after you change units.", col and col.green)
+        end
     end
     local view = type(plan.view) == "table" and plan.view or nil
     local age = math.max(0, os.time() - (tonumber(plan.at) or os.time()))
@@ -43247,6 +43300,94 @@ function GUI.fusionCompareRows(result, err)
         ["Best regular lineup"] = block(result.regular),
         ["Fusion lineup"] = fusionCell,
     }
+end
+
+-- Home → Start here: is each part on, and the one thing to do next.
+GUI.START_ROWS = { "1 · Farm", "2 · Modes", "3 · Battle", "4 · Planner" }
+
+function GUI.startCard(group, actions)
+    local rows = {}
+    for _, key in ipairs(GUI.START_ROWS) do
+        rows[key] = group:CreateStatus({ Name = key, Value = "…", Style = "Dot", Tone = "Accent" })
+    end
+    local todo = group:CreateStatus({ Name = "Do this", Value = "", Style = "Plain", Wrap = true, Visible = false })
+    group:CreateButtonRow({
+        { Name = "Turn everything on", Style = "Primary", Callback = actions.everything },
+    })
+    group:CreateDivider({ Text = "or open a page" })
+    group:CreateButtonRow({
+        { Name = "What to play", Callback = actions.modes },
+        { Name = "Battle", Callback = actions.battle },
+        { Name = "Team plan", Callback = actions.planner },
+    })
+    local handle = {}
+    function handle.Set(a, b)
+        local data = a == handle and b or a
+        data = data or {}
+        for _, key in ipairs(GUI.START_ROWS) do
+            local row = data[key]
+            if row then
+                rows[key]:Set(GUI.escape(row.text))
+                rows[key]:SetTone(row.tone or "Accent")
+            end
+        end
+        local text = tostring(data.todo or "")
+        todo:SetVisible(text ~= "")
+        if text ~= "" then
+            todo:Set(GUI.escape(text))
+            if data.todoColor then todo:SetColor(data.todoColor) end
+        end
+    end
+    return handle
+end
+
+function GUI.startView(col)
+    col = col or {}
+    local data, todo = {}, {}
+    local function row(key, tone, text, action)
+        data[key] = { tone = tone, text = text }
+        if action then table.insert(todo, action) end
+    end
+    if not Config.master then
+        row("1 · Farm", "Error", "OFF · the farm plays nothing", "Flip \"Auto Farm · main switch\" above, or press \"Turn everything on\".")
+    elseif Brain.holdLobby then
+        row("1 · Farm", "Warning", "HELD in the lobby · no runs are started", "Press \"Resume after lobby hold\" (Farm control, below): you pressed Return to lobby earlier.")
+    else
+        row("1 · Farm", "Success", App.where == "match" and "ON · playing a match" or "ON · in the lobby, picking the next run")
+    end
+    local nextMode = Modes.lastScored and Modes.lastScored[1]
+    local picked = Modes.onlyOn() and ("only " .. tostring(Modes.onlyText())) or "Smart · every enabled mode, best pay first"
+    if not Config.play then
+        row("2 · Modes", "Warning", "runs are NOT started for you", "Turn ON \"Start runs for me\" (button \"What to play\"), or start matches yourself.")
+    elseif Config.master and not nextMode and App.where == "lobby" then
+        row("2 · Modes", "Warning", picked .. " · nothing to play right now", "Press \"What to play\" and set at least one kind to Enabled. Farm → Rules lists why a mode is skipped.")
+    else
+        row("2 · Modes", "Success", picked .. (nextMode and (" · next: " .. tostring(nextMode.label)) or ""))
+    end
+    local off = {}
+    for _, pair in ipairs({ { "place", "Place units" }, { "upgrade", "Upgrade units" }, { "actives", "Use abilities" } }) do
+        if not Config[pair[1]] then table.insert(off, pair[2]) end
+    end
+    if not Config.battle then
+        row("3 · Battle", "Error", "OFF · nothing is placed or upgraded in a match", "Press \"Battle\" and turn ON \"Battle automation · main\".")
+    elseif #off > 0 then
+        row("3 · Battle", "Warning", "partly ON · off: " .. table.concat(off, ", "), "Press \"Battle\" and turn ON: " .. table.concat(off, ", ") .. (Config.actives and "" or " (Fusion and buffs need abilities)") .. ".")
+    else
+        row("3 · Battle", "Success", "ON · places, upgrades and uses abilities")
+    end
+    if not (Config.sim and Config.simTeams) then
+        row("4 · Planner", "Warning", "OFF · plays with the team you equipped", "Optional: press \"Team plan\" and turn ON the simulator and the team search to get a better team.")
+    elseif Config.autoTeam then
+        row("4 · Planner", "Success", "ON · the best team is put on before a run, yours comes back after")
+    else
+        row("4 · Planner", "Success", "ON · shows the best team; you equip it yourself (Team plan)")
+    end
+    if #todo > 0 then
+        data.todo, data.todoColor = todo[1] .. (#todo > 1 and string.format(" (+%d more: fix the lines that are not green)", #todo - 1) or ""), col.gold
+    else
+        data.todo, data.todoColor = "Nothing. It runs by itself: watch \"Current run\" on the right. Hide this window with Right Shift.", col.green
+    end
+    return data
 end
 
 function GUI.modeSummary(nextMode, skipped)
@@ -43467,8 +43608,10 @@ function GUI.page(window, name, icon)
             ["Save Settings"] = "save", ["Unload"] = "power",
         }
         local displayName, shortDesc = GUI.controlText(title, desc)
+        local primary = { ["Simulate Now"] = true, ["Start Farming Again"] = true }
         return GUI.controlGroup(self, title):CreateButton({
             Name = displayName, Desc = shortDesc, Tooltip = desc, Icon = icons[title] or "chevron-right",
+            Style = primary[title] and "Primary" or nil,
             Callback = function()
                 task.spawn(function()
                     if not App.alive then return end
@@ -43561,6 +43704,7 @@ function GUI.window(Airflow)
     })
     GUI.NativeWindow = window
     GUI.prepareNavigation(window)
+    GUI.block("Home", "", "Start here", "Left")
     GUI.block("Battle", "Planner", "Plan", "Left")
     GUI.skipInfo = GUI.paragraph(GUI.block("Farm", "Rules", "Unavailable modes", "Right"), "Waiting for the first plan.")
     local controller = { Native = window }
@@ -44427,10 +44571,34 @@ function GUI.build()
     end
     local tab = window:Tab("🏠", "Home")
     helper7(tab, "Turn it on and watch it work. Every other tab is for when you want to choose something yourself.")
+    local startGroup = GUI.block("Home", "", "Start here", "Left")
+    startGroup:CreateLabel({ Text = "<b>How to start:</b> turn the main switch on. When the four lines below are green, it runs by itself." })
     ui.master = tab:Toggle("Auto Farm", "Picks the modes, plays them and runs your picks. Off: it plays nothing, but the summons, fuses and stars you switched on still run in the lobby", Config.master, function(arg1)
         helper("master", arg1)
         window:Status(arg1 and "▶ Farming" or "⏸ Paused")
     end)
+    GUI.start = GUI.startCard(startGroup, {
+        everything = function()
+            -- The switches a run needs. Auto-equip is left alone: it changes your team, so it stays your choice.
+            local turned = {}
+            for _, key in ipairs({ "master", "play", "battle", "place", "upgrade", "actives", "sim", "simTeams" }) do
+                if not Config[key] then
+                    Config[key] = true
+                    table.insert(turned, key)
+                end
+                if ui[key] then pcall(ui[key].Set, true, true) end
+            end
+            local held = Brain.holdLobby ~= nil
+            Brain.holdLobby = nil
+            App.saveNow()
+            pcall(function() window:Status("▶ Farming") end)
+            App.log(1, "MODE", "Turn everything on: " .. (#turned > 0 and table.concat(turned, ", ") or "all were on already") .. (held and " · lobby hold cleared" or ""))
+            helper6("Start", #turned > 0 and (#turned .. " switch" .. (#turned == 1 and "" or "es") .. " turned on" .. (held and ", lobby hold cleared" or "")) or (held and "lobby hold cleared: farming again" or "everything was already on"), "success")
+        end,
+        modes = function() GUI.go("Farm", "Stages") end,
+        battle = function() GUI.go("Battle", "Controls") end,
+        planner = function() GUI.go("Battle", "Planner") end,
+    })
     tab:Section("Right now")
     GUI.nowCard = tab:StatusCard({
         icon = "⏳",
@@ -45673,6 +45841,12 @@ function GUI.update()
             else
                 pcall(GUI.team.Set, tostring(i), "", nil, "")
             end
+        end
+    end
+    if GUI.start then
+        local ok, res = pcall(GUI.startView, col)
+        if ok and res then
+            pcall(GUI.start.Set, res)
         end
     end
     if GUI.plan then
