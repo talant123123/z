@@ -13,7 +13,7 @@ local AIRFLOW_SOURCE = [====[
 if _G.AA_SF and _G.AA_SF.alive then
     return
 end
-local VERSION = "2.3"
+local VERSION = "2.4"
 local CHANGELOG = {
     {
         v = "1.0",
@@ -1043,6 +1043,31 @@ table.insert(CHANGELOG, 1, {
     }
 })
 table.insert(CHANGELOG, 1, {
+    v = "2.4",
+    date = "Nov 16, 2026",
+    title = "Lighter graphics",
+    items = {
+        {
+            "🖼️",
+            "Hide or delete textures",
+            "Settings → Performance: decals, surface textures and mesh skins on the map can be hidden (undo any time) or deleted (frees memory; they come back on the next map or after a rejoin). Units and characters keep their look. Parts, the road and the map folders are never touched, so placement keeps working.",
+            "NEW"
+        },
+        {
+            "✨",
+            "Hide or delete effects",
+            "Particles, trails, beams, smoke, fire and lights, attack effects included. Effects that appear during a match are hidden at once and deleted a few seconds later, when the game is done with them.",
+            "NEW"
+        },
+        {
+            "💡",
+            "Simple lighting, 3D off, FPS cap",
+            "No shadows, bloom, blur, fog or water waves and the lowest render quality; a switch that stops drawing the world (the farm keeps playing); and an FPS cap when your executor has setfpscap. Everything here is undone when you turn it off.",
+            "NEW"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
     v = "2.3",
     date = "Nov 16, 2026",
     title = "Auto Buff",
@@ -1259,6 +1284,11 @@ Core.DEFAULTS = {
     chMinP = 0.5,
     skipSummonFx = false,
     hideMapTextures = false,
+    gfxTextures = "keep",
+    gfxEffects = "keep",
+    gfxLighting = false,
+    gfx3dOff = false,
+    gfxFps = 0,
     autoSummon = false,
     summonBanner = "",
     tokenFloor = 0,
@@ -16375,6 +16405,13 @@ do
         end
     end
     Config.seenVersion = type(readJson.seenVersion) == "string" and readJson.seenVersion or nil
+    -- The old "Hide Map Textures" switch became Settings → Performance → Textures: Hide.
+    if Config.hideMapTextures == true then
+        if Config.gfxTextures == "keep" then
+            Config.gfxTextures = "hide"
+        end
+        Config.hideMapTextures = false
+    end
     if readJson.griffinWatch == true and readJson.snipeUnit == nil then
         Config.snipeOn, Config.snipeUnit = true, "griffith"
     end
@@ -25050,49 +25087,472 @@ function FarmHub.bannerCost(summonBanner)
     }
 end
 
-function GUI.setMapTexturesHidden(enabled)
-    local current = GUI.mapTextureFilter
-    if current then
-        if enabled then return end
-        GUI.mapTextureFilter = nil
-        current.connection:Disconnect()
-        for decal, previous in pairs(current.original) do
+-- ===== Performance: hide or delete textures and effects, simple lighting, 3D off, FPS cap =====
+-- Only what you see is touched: decals, textures, mesh skins, particles, trails, beams, smoke, fire and lights.
+-- Parts, the road and the map folders stay, because placement raycasts and the lobby read them.
+-- Units and characters keep their textures. Hide can be undone; Delete lasts for this map.
+GUI.GFX_TEXTURE = {
+    Decal = true,
+    Texture = true,
+    SurfaceAppearance = true,
+    MeshPart = true,
+    SpecialMesh = true,
+}
+GUI.GFX_EFFECT = {
+    ParticleEmitter = true,
+    Trail = true,
+    Beam = true,
+    Smoke = true,
+    Fire = true,
+    Sparkles = true,
+    PointLight = true,
+    SpotLight = true,
+    SurfaceLight = true,
+}
+GUI.GFX_MODES = {
+    "keep",
+    "hide",
+    "delete"
+}
+GUI.GFX_FPS = {
+    0,
+    60,
+    30,
+    20,
+    15
+}
+-- Something added while playing is hidden at once and deleted this many seconds later, so the game's own
+-- effect code is done with it (deleting it at once would break that code's next line).
+GUI.GFX_LATE_DELETE = 3
+GUI.gfx = {
+    saved = setmetatable({
+    }, {
+        __mode = "k"
+    }),
+    detached = {
+    },
+    count = {
+        texture = 0,
+        effect = 0
+    },
+    removed = {
+        texture = 0,
+        effect = 0
+    },
+    gen = 0
+}
+
+function GUI.gfxMode(kind)
+    local mode = kind == "texture" and Config.gfxTextures or Config.gfxEffects
+    return (mode == "hide" or mode == "delete") and mode or "keep"
+end
+
+function GUI.gfxKind(instance)
+    local class = instance.ClassName
+    if GUI.GFX_TEXTURE [class] then
+        return "texture"
+    end
+    if GUI.GFX_EFFECT [class] then
+        return "effect"
+    end
+    return nil
+end
+
+-- A mesh with no skin has nothing to hide.
+function GUI.gfxBare(instance)
+    local class = instance.ClassName
+    local name = class == "MeshPart" and "TextureID" or class == "SpecialMesh" and "TextureId" or nil
+    if not name then
+        return false
+    end
+    local ok, value = pcall(function()
+        return instance [name]
+    end)
+    return not ok or value == nil or value == ""
+end
+
+-- Units and characters keep their look.
+function GUI.gfxKeepLook(instance)
+    local units = workspace:FindFirstChild("_UNITS")
+    if units and instance:IsDescendantOf(units) then
+        return true
+    end
+    local ancestor = instance.Parent
+    while ancestor and ancestor ~= workspace do
+        if ancestor:IsA("Model") and ancestor:FindFirstChildOfClass("Humanoid") then
+            return true
+        end
+        ancestor = ancestor.Parent
+    end
+    return false
+end
+
+function GUI.gfxHideProps(class)
+    if class == "Decal" or class == "Texture" then
+        return {
+            LocalTransparencyModifier = 1
+        }
+    elseif class == "MeshPart" then
+        return {
+            TextureID = ""
+        }
+    elseif class == "SpecialMesh" then
+        return {
+            TextureId = ""
+        }
+    elseif class == "ParticleEmitter" or class == "Trail" or class == "Beam" then
+        -- Off, and see-through too: the game can still fire Emit() or switch it back on.
+        local ok, clear = pcall(function()
+            return NumberSequence.new(1)
+        end)
+        return {
+            Enabled = false,
+            Transparency = ok and clear or nil
+        }
+    end
+    return {
+        Enabled = false
+    }
+end
+
+function GUI.gfxHide(instance, kind)
+    local state = GUI.gfx
+    if state.saved [instance] then
+        return false
+    end
+    if instance.ClassName == "SurfaceAppearance" then
+        -- Its properties are locked, so it is taken off the part and kept to be put back.
+        local parent = instance.Parent
+        if not parent or not pcall(function()
+            instance.Parent = nil
+        end) then
+            return false
+        end
+        local record = {
+            kind = kind,
+            parent = parent
+        }
+        state.saved [instance], state.detached [instance] = record, record
+        state.count [kind] = state.count [kind] + 1
+        return true
+    end
+    local old = {
+    }
+    for name, value in pairs(GUI.gfxHideProps(instance.ClassName)) do
+        local ok, previous = pcall(function()
+            return instance [name]
+        end)
+        if ok and previous ~= value and pcall(function()
+            instance [name] = value
+        end) then
+            old [name] = previous
+        end
+    end
+    if next(old) == nil then
+        return false
+    end
+    state.saved [instance] = {
+        kind = kind,
+        old = old
+    }
+    state.count [kind] = state.count [kind] + 1
+    return true
+end
+
+function GUI.gfxRestore(kind)
+    local state = GUI.gfx
+    local list = {
+    }
+    for instance, record in pairs(state.saved) do
+        if record.kind == kind then
+            table.insert(list, instance)
+        end
+    end
+    for _, instance in ipairs(list) do
+        local record = state.saved [instance]
+        state.saved [instance], state.detached [instance] = nil, nil
+        if record.parent then
             pcall(function()
-                decal.LocalTransparencyModifier = previous
+                instance.Parent = record.parent
+            end)
+        else
+            for name, value in pairs(record.old) do
+                pcall(function()
+                    instance [name] = value
+                end)
+            end
+        end
+    end
+    state.count [kind] = 0
+end
+
+function GUI.gfxDelete(instance, kind)
+    local state = GUI.gfx
+    if state.saved [instance] then
+        state.saved [instance], state.detached [instance] = nil, nil
+        state.count [kind] = math.max(0, state.count [kind] - 1)
+    end
+    local class = instance.ClassName
+    local ok = pcall(function()
+        if class == "MeshPart" then
+            instance.TextureID = ""
+        elseif class == "SpecialMesh" then
+            instance.TextureId = ""
+        else
+            instance:Destroy()
+        end
+    end)
+    if ok then
+        state.removed [kind] = state.removed [kind] + 1
+    end
+    return ok
+end
+
+-- late: added while playing (not found by the scan of what was already there).
+function GUI.gfxHandle(instance, late)
+    local kind = GUI.gfxKind(instance)
+    if not kind then
+        return
+    end
+    local mode = GUI.gfxMode(kind)
+    if mode == "keep" then
+        return
+    end
+    if kind == "texture" and (GUI.gfxBare(instance) or GUI.gfxKeepLook(instance)) then
+        return
+    end
+    if mode == "hide" then
+        GUI.gfxHide(instance, kind)
+    elseif late then
+        if GUI.gfxHide(instance, kind) then
+            task.delay(GUI.GFX_LATE_DELETE, function()
+                if GUI.gfxMode(kind) == "delete" and GUI.gfx.saved [instance] then
+                    GUI.gfxDelete(instance, kind)
+                end
+            end)
+        end
+    else
+        GUI.gfxDelete(instance, kind)
+    end
+end
+
+function GUI.gfxLighting(on)
+    local state = GUI.gfx
+    if not on then
+        local light = state.light
+        if not light then
+            return
+        end
+        state.light = nil
+        if light.conn then
+            pcall(function()
+                light.conn:Disconnect()
+            end)
+        end
+        for index = # light.saved, 1, - 1 do
+            local entry = light.saved [index]
+            pcall(function()
+                entry [1] [entry [2]] = entry [3]
             end)
         end
         return
     end
-    if not enabled then return end
-
-    local filter = { original = setmetatable({}, { __mode = "k" }) }
-    GUI.mapTextureFilter = filter
-    local function hide(instance)
-        if not instance:IsA("Decal") or filter.original[instance] ~= nil or not instance:IsDescendantOf(workspace) then
-            return
-        end
-        local units = workspace:FindFirstChild("_UNITS")
-        if units and instance:IsDescendantOf(units) then return end
-        local ancestor = instance.Parent
-        while ancestor and ancestor ~= workspace do
-            if ancestor:IsA("Model") and ancestor:FindFirstChildOfClass("Humanoid") then return end
-            ancestor = ancestor.Parent
-        end
-        local ok, previous = pcall(function()
-            local modifier = instance.LocalTransparencyModifier
-            instance.LocalTransparencyModifier = 1
-            return modifier
-        end)
-        if ok then filter.original[instance] = previous end
+    if state.light then
+        return
     end
-    filter.connection = workspace.DescendantAdded:Connect(hide)
-    task.spawn(function()
-        for index, instance in ipairs(workspace:GetDescendants()) do
-            if GUI.mapTextureFilter ~= filter then return end
-            hide(instance)
-            if index % 250 == 0 then task.wait() end
+    local light = {
+        saved = {
+        }
+    }
+    state.light = light
+    local function set(object, name, value)
+        local ok, previous = pcall(function()
+            return object [name]
+        end)
+        if ok and previous ~= value and pcall(function()
+            object [name] = value
+        end) then
+            table.insert(light.saved, {
+                object,
+                name,
+                previous
+            })
         end
+    end
+    local function calm(object)
+        if object:IsA("PostEffect") then
+            set(object, "Enabled", false)
+        elseif object:IsA("Atmosphere") then
+            set(object, "Density", 0)
+            set(object, "Haze", 0)
+            set(object, "Glare", 0)
+        elseif object:IsA("Clouds") then
+            set(object, "Enabled", false)
+        end
+    end
+    local ok, lighting = pcall(function()
+        return game:GetService("Lighting")
     end)
+    if ok and lighting then
+        set(lighting, "GlobalShadows", false)
+        for _, object in ipairs(lighting:GetDescendants()) do
+            pcall(calm, object)
+        end
+        light.conn = lighting.DescendantAdded:Connect(function(object)
+            pcall(calm, object)
+        end)
+    end
+    local camera = workspace.CurrentCamera
+    if camera then
+        for _, object in ipairs(camera:GetChildren()) do
+            pcall(calm, object)
+        end
+    end
+    local terrain = workspace:FindFirstChildOfClass("Terrain")
+    if terrain then
+        set(terrain, "WaterWaveSize", 0)
+        set(terrain, "WaterWaveSpeed", 0)
+        set(terrain, "WaterReflectance", 0)
+        set(terrain, "Decoration", false)
+        for _, object in ipairs(terrain:GetChildren()) do
+            pcall(calm, object)
+        end
+    end
+    pcall(function()
+        set(settings().Rendering, "QualityLevel", Enum.QualityLevel.Level01)
+    end)
+end
+
+function GUI.gfx3d(off)
+    local state = GUI.gfx
+    off = off == true
+    if (state.r3dOff == true) == off then
+        return
+    end
+    local ok = pcall(function()
+        game:GetService("RunService"):Set3dRenderingEnabled(not off)
+    end)
+    if ok then
+        state.r3dOff = off
+    end
+end
+
+function GUI.gfxFps(cap)
+    local state = GUI.gfx
+    cap = math.max(0, math.floor(tonumber(cap) or 0))
+    if cap == (state.fps or 0) then
+        state.fpsMissing = nil
+        return
+    end
+    if type(setfpscap) ~= "function" then
+        state.fpsMissing = cap > 0 or nil
+        return
+    end
+    state.fpsMissing = nil
+    -- "Off" puts back Roblox's usual 60.
+    if pcall(setfpscap, cap > 0 and cap or 60) then
+        state.fps = cap > 0 and cap or nil
+    end
+end
+
+-- Apply the Performance settings: called at start and on every change there.
+function GUI.gfxApply()
+    local state = GUI.gfx
+    for _, kind in ipairs({
+        "texture",
+        "effect"
+    }) do
+        if GUI.gfxMode(kind) ~= "hide" then
+            GUI.gfxRestore(kind)
+        end
+    end
+    local any = GUI.gfxMode("texture") ~= "keep" or GUI.gfxMode("effect") ~= "keep"
+    if any and not state.conn then
+        state.conn = workspace.DescendantAdded:Connect(function(instance)
+            pcall(GUI.gfxHandle, instance, true)
+        end)
+    elseif not any and state.conn then
+        pcall(function()
+            state.conn:Disconnect()
+        end)
+        state.conn = nil
+    end
+    state.gen = state.gen + 1
+    if any then
+        local gen = state.gen
+        task.spawn(function()
+            for index, instance in ipairs(workspace:GetDescendants()) do
+                if state.gen ~= gen then
+                    return
+                end
+                pcall(GUI.gfxHandle, instance, false)
+                if index % 250 == 0 then
+                    task.wait()
+                end
+            end
+        end)
+    end
+    GUI.gfxLighting(Config.gfxLighting == true)
+    GUI.gfx3d(Config.gfx3dOff == true)
+    GUI.gfxFps(Config.gfxFps)
+end
+
+-- Everything back as the game draws it (the script is closing).
+function GUI.gfxOff()
+    local state = GUI.gfx
+    state.gen = state.gen + 1
+    if state.conn then
+        pcall(function()
+            state.conn:Disconnect()
+        end)
+        state.conn = nil
+    end
+    GUI.gfxRestore("texture")
+    GUI.gfxRestore("effect")
+    GUI.gfxLighting(false)
+    GUI.gfx3d(false)
+    if state.fps then
+        GUI.gfxFps(0)
+    end
+end
+
+function GUI.gfxText()
+    local state = GUI.gfx
+    local parts = {
+    }
+    for _, entry in ipairs({
+        {
+            "texture",
+            "textures"
+        },
+        {
+            "effect",
+            "effects"
+        }
+    }) do
+        local kind, label = entry [1], entry [2]
+        local mode = GUI.gfxMode(kind)
+        if mode == "hide" then
+            table.insert(parts, string.format("%s hidden: %d", label, state.count [kind]))
+        elseif mode == "delete" then
+            table.insert(parts, string.format("%s deleted: %d", label, state.removed [kind] + state.count [kind]))
+        end
+    end
+    if state.light then
+        table.insert(parts, "simple lighting")
+    end
+    if state.r3dOff then
+        table.insert(parts, "3D off")
+    end
+    if state.fps then
+        table.insert(parts, string.format("FPS cap %d", state.fps))
+    elseif state.fpsMissing then
+        table.insert(parts, "FPS cap: your executor has no setfpscap")
+    end
+    if # parts == 0 then
+        return "Graphics as the game draws them."
+    end
+    return table.concat(parts, " · ")
 end
 
 function FarmHub.quietFx(arg1)
@@ -46014,9 +46474,49 @@ function GUI.build()
     helper2(tab, "Auto Rewards", "Daily login, finished quests, battle pass, milestones", "rewards")
     helper2(tab, "Redeem Codes", "Promo codes from the guides, at most once a day", "codes")
     helper2(tab, "Community Tips", "Tier ratings for units the game hides, banner picks, buff chaining", "community")
-    ui.hideMapTextures = tab:Toggle("Hide Map Textures", "Hide decals and surface textures on this device. Turn off to restore them.", Config.hideMapTextures, function(enabled)
-        helper("hideMapTextures", enabled)
-        GUI.setMapTexturesHidden(enabled)
+    tab:Section("Performance (this device only)")
+    live.gfx = tab:Label(GUI.gfxText())
+    ui.gfxTextures = tab:Dropdown("Textures", "Decals, surface textures and mesh skins on the map. Hide: undo any time. Delete: frees memory, back on the next map or after a rejoin. Units keep their look", {
+        "Keep",
+        "Hide",
+        "Delete"
+    }, ({
+        keep = 1,
+        hide = 2,
+        delete = 3
+    }) [tostring(Config.gfxTextures)] or 1, function(_arg1, _arg2, arg3)
+        helper("gfxTextures", GUI.GFX_MODES [tonumber(arg3) or 1] or "keep")
+        GUI.gfxApply()
+    end)
+    ui.gfxEffects = tab:Dropdown("Effects", "Particles, trails, beams, smoke, fire and lights, attack effects included. Hide: undo any time. Delete: gone for this map", {
+        "Keep",
+        "Hide",
+        "Delete"
+    }, ({
+        keep = 1,
+        hide = 2,
+        delete = 3
+    }) [tostring(Config.gfxEffects)] or 1, function(_arg1, _arg2, arg3)
+        helper("gfxEffects", GUI.GFX_MODES [tonumber(arg3) or 1] or "keep")
+        GUI.gfxApply()
+    end)
+    ui.gfxLighting = tab:Toggle("Simple Lighting", "No shadows, bloom, blur, fog or water waves, lowest render quality. Turn off to restore", Config.gfxLighting, function(enabled)
+        helper("gfxLighting", enabled)
+        GUI.gfxApply()
+    end)
+    ui.gfx3dOff = tab:Toggle("Turn Off 3D", "Stops drawing the world: the biggest saving when you leave it farming. The farm keeps playing, menus and this window stay", Config.gfx3dOff, function(enabled)
+        helper("gfx3dOff", enabled)
+        GUI.gfxApply()
+    end)
+    ui.gfxFps = tab:Dropdown("FPS Cap", "Fewer frames, less CPU and GPU. Needs setfpscap in your executor; Off puts back the usual 60", {
+        "Off",
+        "60",
+        "30",
+        "20",
+        "15"
+    }, table.find(GUI.GFX_FPS, tonumber(Config.gfxFps) or 0) or 1, function(_arg1, _arg2, arg3)
+        helper("gfxFps", GUI.GFX_FPS [tonumber(arg3) or 1] or 0)
+        GUI.gfxApply()
     end)
     tab:Section("Gold shop")
     helper2(tab, "Star Fruits For Gold", "Buys evolve material from the daily gold shop", "goldShop")
@@ -46767,6 +47267,9 @@ function GUI.update()
         local lastMatch = Brain.lastMatch
         pcall(live.lastMatch.Set, lastMatch and string.format("Last match (%s): ¥%s spent on %d buys · %d refused spots", lastMatch.label, Utils.fmt(lastMatch.spent), lastMatch.actions or 0, lastMatch.refusals or 0) or "no match yet")
     end
+    if live.gfx then
+        pcall(live.gfx.Set, GUI.gfxText())
+    end
     if live.totals then
         pcall(live.totals.Set, string.format("matches %d · wins %d · losses %d · gems %s · event coins %s", Brain.totals.matches or 0, Brain.totals.wins or 0, Brain.totals.losses or 0, Utils.fmt(Brain.totals.gems or 0), Utils.fmt(Brain.totals.coins or 0)))
     end
@@ -46790,7 +47293,7 @@ table.insert(App.conns, LocalPlayer.Idled:Connect(function()
 end))
 
 function App.cleanup()
-    GUI.setMapTexturesHidden(false)
+    pcall(GUI.gfxOff)
     for _, conn in ipairs(App.conns) do
         pcall(function()
             conn:Disconnect()
@@ -46857,7 +47360,7 @@ App.C, App.B, App.CFG, App.MT, App.HUB, App.ST, App.UNIT, App.MODE = Core, Brain
 App.SIM, App.ECON, App.GUI, App.TRAIN, App.ADV, App.DG, App.STR, App.HUNT = Simulator, Economy, GUI, Training, Adventure, Dungeon, Strategy, Hunt
 App.REPORT = Reports
 App.version = VERSION
-GUI.setMapTexturesHidden(Config.hideMapTextures)
+pcall(GUI.gfxApply)
 task.spawn(GUI.build)
 task.spawn(function()
     task.wait(2)
