@@ -13,7 +13,7 @@ local AIRFLOW_SOURCE = [====[
 if _G.AA_SF and _G.AA_SF.alive then
     return
 end
-local VERSION = "2.2"
+local VERSION = "2.3"
 local CHANGELOG = {
     {
         v = "1.0",
@@ -1019,7 +1019,7 @@ table.insert(CHANGELOG, 1, {
         {
             "🧭",
             "One Plan block",
-            "Battle → Planner shows the map and mode, your team and the planned team by slot with roles, the expected wave, a short reason, progress, and three buttons: Recalculate plan, Equip planned team, Restore my team. TESTING shows the three lineups for Fused Hero on Namek together.",
+            "Battle → Planner shows the map and mode, your team and the planned team by slot with roles, the expected wave, a short reason, progress, and three buttons: Recalculate plan, Equip planned team, Restore my team.",
             "IMPROVED"
         },
         {
@@ -1039,6 +1039,43 @@ table.insert(CHANGELOG, 1, {
             "Planner no longer stops with ready evolutions",
             "When your own team was kept and an evolution was ready, the comparison read a clear time that was not there and the search ended with an error.",
             "FIX"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
+    v = "2.3",
+    date = "Nov 16, 2026",
+    title = "Auto Buff",
+    items = {
+        {
+            "🥁",
+            "Buff rotation",
+            "Commander (physical), Windsong and Leafy (magic) copies cast in turn so each buff lands on an already buffed buffer and the bonus climbs in steps. With four copies: #1, #2 four seconds later (five for Windsong and Leafy), #3 when #1's buff drops, #4 when #2's drops. With one to three copies the partial buff is kept for a boss or pressure. A failed cast or a sold copy is worked around.",
+            "NEW"
+        },
+        {
+            "📍",
+            "Buffers stand as a group",
+            "The next copy goes where it reaches the copies already down and they reach it, with the matching attackers inside. When the group does not fit, the real coverage is used.",
+            "NEW"
+        },
+        {
+            "🧮",
+            "Counted before and during a match",
+            "The team search and every buy use the rotation's average bonus, not a guess: a new buffer copy, a buffer upgrade that widens its circle, a new attacker and an attacker upgrade are compared by what they add to the whole team.",
+            "IMPROVED"
+        },
+        {
+            "🎛️",
+            "Switch, type and status",
+            "Battle → Controls: Auto Buff on or off, Auto / Physical / Magic, and a status line with the copies down, the effect and why it waits. A bonus is shown as seen only when the game reports it; otherwise it is marked as an estimate.",
+            "NEW"
+        },
+        {
+            "🧹",
+            "TESTING tab removed",
+            "The test page is gone from the window.",
+            "IMPROVED"
         }
     }
 })
@@ -1176,6 +1213,8 @@ Core.DEFAULTS = {
     place = true,
     upgrade = true,
     actives = true,
+    autoBuff = true,
+    autoBuffKind = "auto",
     autoStart = true,
     farmUnits = true,
     farmSpare = 2,
@@ -17718,22 +17757,198 @@ function Units.allyBuff(arg1)
         (attackInfo.ally.time or 0) / math.max(1,
         attackCooldown)),
         attack = unit.active_attack,
-        chain = arg1 == "erwin" or arg1 == "wendy" or arg1 == "leafa_evolved",
+        chain = arg1 == "erwin" or arg1 == "wendy" or arg1 == "leafa_evolved" or arg1 == "leafa",
+        follow = Units.BUFF_GAP [arg1] or Units.BUFF_FOLLOW,
     }
+end
+
+-- ===== Auto Buff =====
+-- Commander (erwin) raises physical damage; Windsong (wendy) and Leafy (leafa, leafa_evolved) raise magic.
+-- A buffed buffer casts a stronger buff, so copies cast in turn climb in steps (with +25%: 25 → 56 → 95 → cap).
+-- Checked against three guide videos (Nov 2026): Commander 25 → 56 → 95 → 100, Windsong 30 → 69 → 100, Leafy starts at 50.
+-- The gap before the second cast is 4s for Commander and about 5s for Windsong and Leafy (Units.BUFF_GAP).
+-- One rule drives the forecast and the match alike: keep at most two buffs up, and cast the next ready
+-- copy once only one is left and the last cast is a few seconds old. With four copies that is the
+-- known opening: #1, #2 four seconds later, #3 when #1's buff drops, #4 when #2's drops.
+Units.BUFF_FOLLOW, Units.BUFF_LEAD, Units.BUFF_COPIES = 4, 4, 4
+Units.BUFF_GAP = {
+    erwin = 4,
+    wendy = 5,
+    leafa = 5,
+    leafa_evolved = 5,
+}
+Units._cycle = {
+}
+
+-- Is the rotation on (for this buffer, when an id is given)?
+function Units.chainOn(id)
+    if Config.autoBuff == false or not Config.actives then
+        return false
+    end
+    if id then
+        local buff = Units.allyBuff(id)
+        return buff ~= nil and buff.chain == true
+    end
+    return true
+end
+
+-- Auto Buff set to Physical or Magic keeps buffers of the other kind off the field.
+function Units.buffAllowed(id)
+    local buff = Units.allyBuff(id)
+    if not buff or Config.autoBuff == false then
+        return true
+    end
+    local kind = Config.autoBuffKind
+    if kind ~= "physical" and kind ~= "magic" then
+        return true
+    end
+    return buff.types [kind] ~= nil
+end
+
+function Units.buffPlan(copies, cd, dur, base, cap, follow)
+    cd, dur = math.max(1, tonumber(cd) or 60), math.max(1, tonumber(dur) or 30)
+    local plan = {
+        n = copies,
+        cd = cd,
+        dur = dur,
+        base = base,
+        cap = cap or 1,
+        follow = tonumber(follow) or Units.BUFF_FOLLOW,
+        lead = math.min(Units.BUFF_LEAD, dur / 2)
+    }
+    -- continuous: some order of casts keeps a buff up with no gap. pairs: two buffs can overlap all the time.
+    if copies >= 2 then
+        plan.continuous = copies * (dur - plan.lead) >= cd
+        plan.pairs = copies * dur >= 2 * cd
+    else
+        plan.continuous, plan.pairs = dur >= cd, false
+    end
+    return plan
+end
+
+-- live: buffs still up, each { left = seconds, level = }. Returns: cast now?, why, seconds to wait (when known).
+function Units.buffDecide(plan, live, sinceCast, danger)
+    local count, soonest = 0, nil
+    for _, buff in ipairs(live) do
+        if (buff.left or 0) > 0 then
+            count = count + 1
+            soonest = math.min(soonest or buff.left, buff.left)
+        end
+    end
+    if count == 0 then
+        if plan.continuous or danger then
+            return true, "starts the rotation"
+        end
+        return false, "held for a boss or pressure: too few copies to keep the buff up all the time"
+    end
+    if (sinceCast or 99) < plan.follow then
+        return false, string.format("%.0fs gap after the last cast", plan.follow - sinceCast), plan.follow - sinceCast
+    end
+    if count == 1 then
+        if plan.pairs or not plan.continuous then
+            return true, "second buff on top of the first"
+        end
+        if soonest <= plan.lead then
+            return true, "keeps the chain before the buff ends"
+        end
+        return false, string.format("next cast %.0fs before the buff ends", plan.lead), soonest - plan.lead
+    end
+    return false, "two buffs are up: the next copy casts when the older one drops", soonest
+end
+
+-- Average buff a rotation of this many copies gives (0.5 = +50% on average), its peak and uptime.
+function Units.buffCycle(base, copies, cd, dur, cap, follow)
+    copies = math.floor(tonumber(copies) or 0)
+    if copies <= 0 or (base or 0) <= 0 then
+        return {
+            avg = 0,
+            peak = 0,
+            uptime = 0,
+            casts = {
+            }
+        }
+    end
+    local key = string.format("%.3f:%d:%.1f:%.1f:%.2f:%.1f", base, copies, tonumber(cd) or 60, tonumber(dur) or 30, cap or 1, tonumber(follow) or Units.BUFF_FOLLOW)
+    if Units._cycle [key] then
+        return Units._cycle [key]
+    end
+    local plan = Units.buffPlan(copies, cd, dur, base, cap, follow)
+    local ready, live, casts = {
+    }, {
+    }, {
+    }
+    for index = 1, copies do
+        ready [index] = 0
+    end
+    local horizon = math.max(240, math.ceil(plan.cd * 4))
+    local sum, peak, up, last = 0, 0, 0, - 99
+    for t = 0, horizon - 1 do
+        local view, carried = {
+        }, 0
+        for index = # live, 1, - 1 do
+            if live [index].till <= t then
+                table.remove(live, index)
+            end
+        end
+        for _, buff in ipairs(live) do
+            table.insert(view, {
+                left = buff.till - t,
+                level = buff.level
+            })
+            carried = math.max(carried, buff.level)
+        end
+        local who
+        for index = 1, copies do
+            if ready [index] <= t and (not who or ready [index] < ready [who]) then
+                who = index
+            end
+        end
+        if who and Units.buffDecide(plan, view, t - last, true) then
+            local level = math.min(plan.cap, (1 + base) * (1 + carried) - 1)
+            table.insert(live, {
+                till = t + plan.dur,
+                level = level
+            })
+            ready [who], last = t + plan.cd, t
+            if # casts < 10 then
+                table.insert(casts, {
+                    t = t,
+                    copy = who,
+                    level = level
+                })
+            end
+            carried = math.max(carried, level)
+        end
+        sum, peak = sum + carried, math.max(peak, carried)
+        if carried > 0 then
+            up = up + 1
+        end
+    end
+    local result = {
+        avg = sum / horizon,
+        peak = peak,
+        uptime = up / horizon,
+        casts = casts,
+        plan = plan
+    }
+    Units._cycle [key] = result
+    return result
 end
 
 function Units.buffAverage(buff, copies, base, chainAllowed)
     local capacity = copies * buff.uptime
     local regular = base * math.min(1, capacity)
-    if not (buff.chain and chainAllowed) or copies < 2 then return regular end
-    -- Forecast a relay with limited coverage. The live test measures the actual buff.
-    local peak = math.min(1, (1 + base) ^ (copies - 1) - 1)
-    return math.max(regular, peak * math.min(1, capacity) * 0.65)
+    if not (buff.chain and chainAllowed) or copies < 1 then return regular end
+    -- The rotation's real average: steps, overlap and the gaps left when copies are few.
+    local seen = Brain.stack [buff.attack]
+    local cap = seen and tonumber(seen.cap) or 1
+    local dur = seen and tonumber(seen.dur) or buff.time
+    return Units.buffCycle(base, copies, buff.cd, dur, cap, buff.follow).avg
 end
 
 function Units.buffCopies(allyBuff)
     local value = math.max(1, math.ceil((tonumber(allyBuff.cd) or 60) / math.max(1, tonumber(allyBuff.time) or 30) - 0.001))
-    if allyBuff.chain and Config.actives and Config.community then return math.max(value, 5) end
+    if allyBuff.chain and Units.chainOn() then return math.max(value, Units.BUFF_COPIES) end
     local value2 = Brain.stack [allyBuff.attack]
     if value2 and value2.stacks then
         local count = 0
@@ -28139,6 +28354,8 @@ end
 Simulator.LAND_CAP = 1.3
 -- An attacker whose damage type an equipped buffer raises goes down a little sooner.
 Simulator.BUFF_MATCH = 1.15
+-- Short modes: with the opening defense down, the first copy of a matching buffer is worth this much more.
+Simulator.BUFF_EARLY = 1.3
 
 function Simulator.autoskip()
     local ok, res = pcall(function()
@@ -29113,6 +29330,7 @@ function Simulator.runRaw(arg1, arg2, arg3)
         buffWaves = 0,
         saved = 0
     }
+    local shortMode = Simulator.isShort(arg1)
     local buffKinds = {
     }
     if Config.actives ~= false then
@@ -29498,7 +29716,7 @@ function Simulator.runRaw(arg1, arg2, arg3)
                 local value = helper7(item.buff)
                 for typeKey, value2 in pairs(item.buff.types) do
                     if item.buff.chain then
-                        list13[typeKey] = math.max(list13[typeKey] or 0, Units.buffAverage(item.buff, list2[item.buff.attack], value2, Config.actives and Config.community))
+                        list13[typeKey] = math.max(list13[typeKey] or 0, Units.buffAverage(item.buff, list2[item.buff.attack], value2, Units.chainOn()))
                     elseif value then
                         list [typeKey] = math.min(value, (list [typeKey] or 0) + value2 * item.buff.uptime)
                         list13 [typeKey] = math.max(list13 [typeKey] or 0, list [typeKey])
@@ -29854,6 +30072,13 @@ function Simulator.runRaw(arg1, arg2, arg3)
             paused = stats.paused,
             placedWave = stats.placedWave
         }
+        summary.buffCopies = {
+        }
+        for _, item in ipairs(list3) do
+            if item.buff then
+                summary.buffCopies [item.e.id] = (summary.buffCopies [item.e.id] or 0) + 1
+            end
+        end
         for id, wave in pairs(stats.placedWave) do
             if Units.isFarm(id) then
                 summary.farmKinds = summary.farmKinds + 1
@@ -30364,6 +30589,17 @@ function Simulator.runRaw(arg1, arg2, arg3)
                             if pathFloor and pathLead [value] == item and item.lvl < fusion.upgrade then
                                 stepGain = math.max(stepGain, pathFloor * cost)
                             end
+                            local ownBuff = item.buff
+                            if ownBuff and Config.actives ~= false then
+                                -- A buffer's upgrade widens its circle: the attackers it starts to reach get the buff.
+                                local inside = buffReach(value.id, Units.range(value.u, item.lvl) * buffRange, ownBuff.types)
+                                local wider = buffReach(value.id, Units.range(value.u, item.lvl + 1) * buffRange, ownBuff.types)
+                                for tower in pairs(wider) do
+                                    if not inside [tower] then
+                                        stepGain = stepGain + tower.dps * (buffRates [tower.base] or 0)
+                                    end
+                                end
+                            end
                             table.insert(list, {
                                 cost = cost,
                                 gain = stepGain,
@@ -30389,7 +30625,7 @@ function Simulator.runRaw(arg1, arg2, arg3)
                         end
                     end
                 end
-                if list2 and not flag and # list2 < (allyBuff and math.min(value.cap, Units.buffCopies(allyBuff)) or value.cap) and value.placeable then
+                if list2 and not flag and # list2 < (allyBuff and math.min(value.cap, Units.buffCopies(allyBuff)) or value.cap) and value.placeable and (not allyBuff or Units.buffAllowed(value.id)) then
                     local cost = (value.data.cost or 0) * arg1.costScale
                     if value.farm then
                         table.insert(list, {
@@ -30428,8 +30664,8 @@ function Simulator.runRaw(arg1, arg2, arg3)
                             for _, tower in ipairs(list3) do
                                 local base = allyBuff.types[tower.base]
                                 if base and not tower.buff and covered[tower] then
-                                    local after = Units.buffAverage(allyBuff, #list2 + 1, base, Config.community)
-                                    local before = Units.buffAverage(allyBuff, #list2, base, Config.community)
+                                    local after = Units.buffAverage(allyBuff, #list2 + 1, base, Units.chainOn())
+                                    local before = Units.buffAverage(allyBuff, #list2, base, Units.chainOn())
                                     supportGain += tower.dps * math.max(0, after - before)
                                 end
                             end
@@ -30437,6 +30673,9 @@ function Simulator.runRaw(arg1, arg2, arg3)
                         -- The two estimates describe the same buff: counting both made the simulator buy
                         -- buffers about twice as eagerly as the live match does.
                         supportGain = math.max(supportGain, helper13(value))
+                        if allyBuff and shortMode and count10 >= 2 and # list2 == 0 then
+                            supportGain = supportGain * Simulator.BUFF_EARLY
+                        end
                         local placeGain = supportGain + shieldDps * value3 + helper12(value) + helper15(value, attackInfo) + helper(value, 0, true)
                         if pathFloor and (value == first or value == second) and not pathLead [value] then
                             placeGain = math.max(placeGain, pathFloor * cost)
@@ -31114,7 +31353,13 @@ function Simulator.roster(pool, extra, level)
             table.insert(roster.farms, unit)
         elseif Units.allyBuff(id) then
             rank [unit] = Units.effects(id).score
-            table.insert(roster.buffers, unit)
+            if Units.buffAllowed(id) then
+                table.insert(roster.buffers, unit)
+            else
+                roster.blocked = roster.blocked or {
+                }
+                table.insert(roster.blocked, Units.name(id))
+            end
         else
             local ok, score = pcall(Units.score, unit, level.mod)
             rank [unit] = (ok and score or 0) * Units.skinMul(unit, level.skinSet)
@@ -31302,7 +31547,12 @@ function Simulator.whyLine(level, team, run)
         table.sort(buffKinds)
         local name = table.concat(buffKinds, "/")
         if stats.buffWave and stats.buffShare then
-            table.insert(parts, string.format("%s buff from wave %d reaches %d%% of team damage (+%d%%)", name, stats.buffWave, math.floor(stats.buffShare * 100 + 0.5), math.floor((stats.buffGain or 0) * 100 + 0.5)))
+            local copies = 0
+            for _, count in pairs(stats.buffCopies or {
+            }) do
+                copies = math.max(copies, count)
+            end
+            table.insert(parts, string.format("%s buff%s from wave %d reaches %d%% of team damage (+%d%%)", name, copies > 1 and string.format(" (%d copies)", copies) or "", stats.buffWave, math.floor(stats.buffShare * 100 + 0.5), math.floor((stats.buffGain or 0) * 100 + 0.5)))
         elseif stats.buffWave then
             table.insert(parts, name .. " buffer bought at wave " .. tostring(stats.buffWave))
         else
@@ -31571,6 +31821,10 @@ function Simulator.bestTeam(applyFx, arg2, pool, num, trace, report)
         end
         for index = 3, # kinds do
             skip(kinds [index].kind .. " buffer", "mix", "only the two buff types with the most matching damage are compared")
+        end
+        for _, name in ipairs(roster.blocked or {
+        }) do
+            skip(name, "mix", "Auto Buff is set to " .. tostring(Config.autoBuffKind) .. " only")
         end
         local farmCounts = short and {
             2,
@@ -32068,6 +32322,51 @@ function Simulator.bestTeam(applyFx, arg2, pool, num, trace, report)
         return arg22, value2, cliff, cliff2, fusion.team, fusion.run, fusion.opts
     end
     return arg22, value2, cliff, cliff2, nil, nil, nil
+end
+
+-- Auto Buff in the plan: how many copies the simulation bought and what their rotation gives.
+function Simulator.buffNotes(team, run)
+    local lines = {
+    }
+    if Config.autoBuff == false then
+        return { "Auto Buff · off: buffers cast one at a time, the rotation is not counted" }
+    end
+    local stats = run and run.stats or {
+    }
+    for _, unit in ipairs(team) do
+        local id = unit.unit_id
+        local buff = Units.allyBuff(id)
+        if buff then
+            local kinds, base = {
+            }, 0
+            for kind, rate in pairs(buff.types) do
+                table.insert(kinds, tostring(kind))
+                base = math.max(base, tonumber(rate) or 0)
+            end
+            table.sort(kinds)
+            local copies = stats.buffCopies and stats.buffCopies [id] or 0
+            if not Units.buffAllowed(id) then
+                table.insert(lines, string.format("Auto Buff · %s (%s): not used, the type is set to %s", Units.name(id), id, tostring(Config.autoBuffKind)))
+            elseif copies == 0 then
+                table.insert(lines, string.format("Auto Buff · %s (%s) raises %s damage: never bought in the simulation", Units.name(id), id, table.concat(kinds, "/")))
+            elseif buff.chain and Units.chainOn() then
+                local seen = Brain.stack [buff.attack]
+                local cycle = Units.buffCycle(base, copies, buff.cd, seen and tonumber(seen.dur) or buff.time, seen and tonumber(seen.cap) or 1, buff.follow)
+                local order = {
+                }
+                for index = 1, math.min(4, # cycle.casts) do
+                    table.insert(order, string.format("#%d at %ds", cycle.casts [index].copy, cycle.casts [index].t))
+                end
+                table.insert(lines, string.format("Auto Buff · %s (%s) raises %s damage: %d cop%s → +%d%% per cast, rotation averages +%d%% (peak +%d%%, up %d%% of the time; cooldown %ds, buff %ds%s) · order: %s", Units.name(id), id, table.concat(kinds, "/"), copies, copies == 1 and "y" or "ies", math.floor(base * 100 + 0.5), math.floor(cycle.avg * 100 + 0.5), math.floor(cycle.peak * 100 + 0.5), math.floor(cycle.uptime * 100 + 0.5), math.floor(buff.cd + 0.5), math.floor((seen and tonumber(seen.dur) or buff.time or 0) + 0.5), (seen and seen.dur) and ", length measured in a match" or ", length from game data", table.concat(order, ", ")))
+            else
+                table.insert(lines, string.format("Auto Buff · %s (%s) raises %s damage: %d cop%s taking turns, +%d%% for %d%% of the time", Units.name(id), id, table.concat(kinds, "/"), copies, copies == 1 and "y" or "ies", math.floor(base * 100 + 0.5), math.floor(math.min(1, copies * buff.uptime) * 100 + 0.5)))
+            end
+        end
+    end
+    if # lines == 0 then
+        table.insert(lines, "Auto Buff · no buffer in the planned lineup")
+    end
+    return lines
 end
 
 -- The comparison as lines for planner.log: every lineup with what happened to it.
@@ -32572,6 +32871,7 @@ function Simulator.plan(mode, arg2, arg3, arg4, freshSearch)
             local whyShort = (not keptCurrent and not fusionPicked and report.priority) or Simulator.whyLine(info, res, fusionRun2) or evaluate.teamReason
             if trace then
                 for _, line in ipairs(Simulator.reportLines(report, info)) do trace(line, true) end
+                for _, line in ipairs(Simulator.buffNotes(res, fusionRun2)) do trace(line, true) end
                 for _, line in ipairs(Simulator.namedNotes(pool, res)) do trace(line, true) end
             end
             local forecast
@@ -36179,6 +36479,24 @@ function Match.bestSpot(unit, isFarm, arg3)
     local value3, value4, cover
     local count2 = 0
     local dens = Brain.maps [Match.mapKey()] and Brain.maps [Match.mapKey()].dens
+    -- Auto Buff: copies of one buffer stand as a group. A spot counts as linked when the new copy
+    -- reaches every copy already down and they reach it.
+    local mates, range0 = nil, Units.range(unit.u, 0) * rangeScale
+    if allyBuff and allyBuff.chain and Units.chainOn() then
+        mates = {
+        }
+        for _, fieldBuffer in ipairs(Match.fieldBuffers()) do
+            if fieldBuffer.b.attack == allyBuff.attack then
+                table.insert(mates, fieldBuffer)
+            end
+        end
+    end
+    local groupSize = {
+    }
+    for _, fieldBuffer in ipairs(fieldBuffers) do
+        groupSize [fieldBuffer.b.attack] = (groupSize [fieldBuffer.b.attack] or 0) + 1
+    end
+    local chainOn = Units.chainOn()
     for _, cand in ipairs(cands) do
         local valid = Match.valid(cand, data)
         count2 = count2 + 1
@@ -36227,6 +36545,15 @@ function Match.bestSpot(unit, isFarm, arg3)
                     end
                 end
                 cover2 = count2 / count * 100 + Match.cover(valid, range, true) * 0.05
+                if mates and # mates > 0 then
+                    local linked = 0
+                    for _, mate in ipairs(mates) do
+                        if (Utils.flat(mate.pos) - Utils.flat(valid)).Magnitude <= math.min(range0, mate.range) then
+                            linked = linked + 1
+                        end
+                    end
+                    cover2 = cover2 * (0.25 + 0.75 * linked / # mates) + 200 * linked / # mates
+                end
             else
                 local cover = Match.cover(valid, range, true, depth)
                 if range2 then
@@ -36234,10 +36561,20 @@ function Match.bestSpot(unit, isFarm, arg3)
                 end
                 cover2 = cover + (dens and 0 or (1 - Match.progressAt(valid)) * 0.5)
                 local count = 0
+                local inside = {
+                }
                 for _, fieldBuffer in ipairs(fieldBuffers) do
                     local value = fieldBuffer.b.types [types2]
                     if value and (Utils.flat(fieldBuffer.pos) - Utils.flat(valid)).Magnitude <= fieldBuffer.range then
-                        count = math.max(count, math.min(value, count + value * fieldBuffer.b.uptime))
+                        if fieldBuffer.b.chain and chainOn then
+                            -- The rotation only climbs for a unit every copy reaches: the bonus grows with each one.
+                            local attack = fieldBuffer.b.attack
+                            inside [attack] = (inside [attack] or 0) + 1
+                            local size = groupSize [attack] or 1
+                            count = math.max(count, Units.buffAverage(fieldBuffer.b, size, value, true) * inside [attack] / size)
+                        else
+                            count = math.max(count, math.min(value, count + value * fieldBuffer.b.uptime))
+                        end
                     end
                 end
                 cover2 = cover2 * (1 + count)
@@ -37164,7 +37501,7 @@ function Match.buffGain(member)
     local cap = value and value.stacks and (value.cap or 1) or nil
     local ok, res = pcall(Units.range, member.u, 0)
     res = (ok and tonumber(res) or 15) * ((Match.info and tonumber(Match.info.rangeScale)) or 1)
-    local allowChain = Config.actives and Config.community
+    local allowChain = Units.chainOn()
     local cd = cap and Config.community and tonumber(allyBuff.time) and tonumber(allyBuff.cd)
     local function helper(arg1, arg2)
         local ratio = math.floor(arg1 * allyBuff.time / math.max(1, allyBuff.cd) + 0.001)
@@ -37198,6 +37535,38 @@ end
 
 function Match.buffWanted(member)
     return Match.buffGain(member) > 0.01 * (Match.teamDps or 0)
+end
+
+-- What a buffer's next upgrade adds through its wider circle: the attackers it starts to reach.
+function Match.buffWider(member, copy, row, nextRow)
+    local allyBuff = Units.allyBuff(member.id)
+    if not allyBuff or not Config.actives or not (row and nextRow) or (nextRow.range or 0) <= (row.range or 0) then
+        return 0
+    end
+    local stats = copy._stats
+    local reach = stats.range.Value
+    local wider = reach * nextRow.range / math.max(1, row.range)
+    local origin = Utils.flat(copy:GetPivot().Position)
+    local size = 0
+    for _, fieldBuffer in ipairs(Match.fieldBuffers()) do
+        if fieldBuffer.b.attack == allyBuff.attack then
+            size = size + 1
+        end
+    end
+    local gain = 0
+    for _, tower in ipairs(Match.mine) do
+        local id = tower._stats.id.Value
+        if not Units.isFarm(id) and not Units.allyBuff(id) then
+            local _, base = Units.types(id)
+            local rate = allyBuff.types [base]
+            local distance = (Utils.flat(tower:GetPivot().Position) - origin).Magnitude
+            if rate and distance > reach and distance <= wider then
+                local ok, dps = pcall(Match.liveDps, tower, id)
+                gain = gain + (ok and tonumber(dps) or 0) * Units.buffAverage(allyBuff, math.max(1, size), rate, Units.chainOn()) / math.max(1, size)
+            end
+        end
+    end
+    return gain
 end
 Match.summonHist = {
 }
@@ -37479,6 +37848,7 @@ function Match.econ()
                         local gain = (shieldHp > 0 and Economy.shieldGain(Match.liveDps(copy, member.id), rows [level], Units.dps(member.u, level + 1, Match.mod), nextRow, shieldHp, shieldCount, 1, Match.info and Match.info.eff) or Economy.upgradeGain(Match.liveDps(copy, member.id), rows, level, cost, upCostMul, Units.dps(member.u, level + 1, Match.mod))) * trainBonus * Match.mergeBoost(copy) * Match.airBoost(copy) * Match.reach(copy) * Match.focusGain(copy)
                         local bleedGain = Match.bleedGain(member.id, level, false)
                         gain = gain + bleedGain
+                        gain = gain + Match.buffWider(member, copy, rows [level], nextRow)
                         local fusionStep = fusionPath and fusionPath.lead [member.id] and fusionPath.lead [member.id].tower == copy and level < Units.FUSION.upgrade
                         if fusionStep and fusionPath.floor then
                             gain = math.max(gain, fusionPath.floor * cost)
@@ -37505,8 +37875,10 @@ function Match.econ()
         local cap = Units.cap(member.u)
         if Match.random then
             cap = member.hand and 1 or 0
-        elseif Units.allyBuff(member.id) and trainBonus == 1 and not Match.buffWanted(member) then
+        elseif Units.allyBuff(member.id) and trainBonus == 1 and (not Match.buffWanted(member) or not Units.buffAllowed(member.id)) then
             cap = 0
+        elseif Units.allyBuff(member.id) then
+            cap = math.min(cap, Units.buffCopies(Units.allyBuff(member.id)))
         end
         if # copies < cap and (Match.noSpot [member.uuid] or 0) < 3 then
             local cost = (member.data.cost or 0) * spawnCostMul
@@ -37540,7 +37912,12 @@ function Match.econ()
                 local idolGain = Match.random and Units.idol(member.id) and (Match.teamDps or 0) * Match.idolStep() * 2 or 0
                 local dpsGain = Match.shieldOf(Match.random and Match.cardDps(member) or Units.dps(member.u, 0, Match.mod), rows [0]) + Match.shieldWork(member.id, rows [0])
                 local blessGain = Match.blessGain(member)
-                local placeGain = dpsGain * placeWeight + Match.buffGain(member) + blessGain + idolGain + Match.holdGain(member, rows [0]) + Match.bleedGain(member.id, 0, true)
+                local buffGain = Match.buffGain(member)
+                if isBuffer and # copies == 0 and attackers >= 2 and Match.info and Simulator.isShort(Match.info) then
+                    -- Short mode: once the opening defense stands, the first buffer copy goes ahead of more damage.
+                    buffGain = buffGain * Simulator.BUFF_EARLY
+                end
+                local placeGain = dpsGain * placeWeight + buffGain + blessGain + idolGain + Match.holdGain(member, rows [0]) + Match.bleedGain(member.id, 0, true)
                 local fusionStep = fusionPath and Units.FUSION.attacks [member.id] and not fusionPath.lead [member.id]
                 if fusionStep and fusionPath.floor then
                     placeGain = math.max(placeGain, fusionPath.floor * cost)
@@ -38131,13 +38508,309 @@ function Match.relayBuffChoice(now, clock)
     return best and best.model
 end
 
+-- Plain data in, plain data out, so the stand can run it: which copies reach each other and which
+-- attackers stand in range. copies: { position, range }; fighters: { position, base, dps }.
+function Match.buffReach(copies, fighters, types)
+    local out = {
+        total = 0,
+        covered = 0,
+        full = 0,
+        inRange = {
+        }
+    }
+    for _, fighter in ipairs(fighters) do
+        if types [fighter.base] then
+            local reach = 0
+            for _, copy in ipairs(copies) do
+                local x, z = fighter.position.X - copy.position.X, fighter.position.Z - copy.position.Z
+                if x * x + z * z <= copy.range * copy.range then
+                    reach = reach + 1
+                end
+            end
+            out.total = out.total + fighter.dps
+            if reach > 0 then
+                out.covered = out.covered + fighter.dps
+                table.insert(out.inRange, fighter)
+            end
+            if reach == # copies and reach > 0 then
+                out.full = out.full + fighter.dps
+            end
+            fighter.reach = reach
+        end
+    end
+    for _, copy in ipairs(copies) do
+        copy.linked = 0
+        for _, other in ipairs(copies) do
+            if other ~= copy then
+                local x, z = other.position.X - copy.position.X, other.position.Z - copy.position.Z
+                local reach = math.min(copy.range, other.range)
+                if x * x + z * z <= reach * reach then
+                    copy.linked = copy.linked + 1
+                end
+            end
+        end
+    end
+    return out
+end
+
+function Match.autoBuffGroups(clock)
+    local groups, order, fighters = {
+    }, {
+    }, {
+    }
+    for _, tower in ipairs(Match.mine) do
+        local stats = tower._stats
+        local id = stats.id.Value
+        local buff = Units.allyBuff(id)
+        local position = Utils.flat(tower:GetPivot().Position)
+        if buff and buff.chain then
+            local active, last, cooldown = stats:FindFirstChild("active_attack"), stats:FindFirstChild("last_active_cast"), stats:FindFirstChild("active_attack_cooldown")
+            if active and tostring(active.Value) == buff.attack and last and cooldown then
+                local group = groups [buff.attack]
+                if not group then
+                    group = {
+                        attack = buff.attack,
+                        buff = buff,
+                        id = id,
+                        copies = {
+                        },
+                        cd = 0
+                    }
+                    groups [buff.attack] = group
+                    table.insert(order, group)
+                end
+                local wait = (tonumber(cooldown.Value) or 0) - (clock - (tonumber(last.Value) or 0))
+                table.insert(group.copies, {
+                    model = tower,
+                    stats = stats,
+                    position = position,
+                    range = stats.range.Value,
+                    ready = wait <= 0,
+                    wait = math.max(0, wait)
+                })
+                -- The copy's own cooldown as the game shows it: a SPA curse is already in this number.
+                group.cd = math.max(group.cd, tonumber(cooldown.Value) or 0)
+            end
+        elseif not buff and not Units.isFarm(id) then
+            local _, base = Units.types(id)
+            local ok, dps = pcall(Match.liveDps, tower, id)
+            table.insert(fighters, {
+                stats = stats,
+                position = position,
+                base = base,
+                dps = ok and tonumber(dps) or 0,
+                id = id
+            })
+        end
+    end
+    for _, group in ipairs(order) do
+        group.base, group.kind = 0, nil
+        for kind, rate in pairs(group.buff.types) do
+            if (tonumber(rate) or 0) > group.base then
+                group.base, group.kind = tonumber(rate), kind
+            end
+        end
+        group.reach = Match.buffReach(group.copies, fighters, group.buff.types)
+        group.seen = 0
+        for _, fighter in ipairs(group.reach.inRange) do
+            group.seen = math.max(group.seen, tonumber(fighter.stats:GetAttribute("_dmg_buff_" .. tostring(fighter.base))) or 0)
+        end
+        for _, copy in ipairs(group.copies) do
+            copy.level = tonumber(copy.stats:GetAttribute("_dmg_buff_" .. tostring(group.kind))) or 0
+            group.seen = math.max(group.seen, copy.level)
+        end
+    end
+    return order
+end
+
+function Match.buffDanger()
+    if Match.depth and Match.depth.leak then
+        return true
+    end
+    if (Match.pressure or 0) >= math.min(Config.safeReach, 0.35) or Match.piling then
+        return true
+    end
+    if (Match.total or 0) > 0 and Match.wave() >= Match.total then
+        return true
+    end
+    if (Match.clearSec or 0) > math.max(6, Config.clearSec * 0.5) then
+        return true
+    end
+    for _, enemy in ipairs(Match.enemies) do
+        if enemy.boss then
+            return true
+        end
+    end
+    return false
+end
+
+-- Which buffer casts now. Timing comes from our own casts; the buff value the game shows on the units
+-- confirms the level and corrects how long a buff really lasts.
+function Match.autoBuffPick(now, clock)
+    if not Units.chainOn() then
+        Match.buffText = nil
+        return nil
+    end
+    Match.buffState = Match.buffState or {
+    }
+    local pick
+    local lines = {
+    }
+    for _, group in ipairs(Match.autoBuffGroups(clock)) do
+        local state = Match.buffState [group.attack]
+        if not state then
+            state = {
+                casts = {
+                },
+                last = - 99,
+                done = 0
+            }
+            Match.buffState [group.attack] = state
+        end
+        local learned = Brain.stack [group.attack]
+        local dataDur = tonumber(group.buff.time) or 30
+        local dur = learned and tonumber(learned.dur) or dataDur
+        local cap = learned and tonumber(learned.cap) or 1
+        if group.seen > 0.02 then
+            state.confirmed = true
+        end
+        -- A drop the game shows: the cast that gave that level has ended. Its real length replaces the estimate.
+        if state.confirmed and state.seen and group.seen < state.seen - 0.02 then
+            local ended
+            for _, cast in ipairs(state.casts) do
+                if math.abs((cast.level or 0) - state.seen) <= 0.06 and (not ended or cast.at < ended.at) then
+                    ended = cast
+                end
+            end
+            if ended and now - ended.at > 3 then
+                local real = now - ended.at
+                if real >= dataDur * 0.4 and real <= dataDur * 2 then
+                    local entry = Brain.stack [group.attack] or {
+                    }
+                    entry.dur = entry.dur and (entry.dur + (real - entry.dur) * 0.5) or real
+                    entry.durAt = os.time()
+                    Brain.stack [group.attack] = entry
+                    dur = entry.dur
+                    App.saveSoon()
+                end
+                ended.at = now - dur
+            end
+        end
+        state.seen = group.seen
+        local live, top = {
+        }, 0
+        for index = # state.casts, 1, - 1 do
+            local cast = state.casts [index]
+            if now - cast.at >= dur then
+                table.remove(state.casts, index)
+            else
+                table.insert(live, {
+                    left = dur - (now - cast.at),
+                    level = cast.level
+                })
+                top = math.max(top, cast.level or 0)
+            end
+        end
+        local copies = # group.copies
+        local plan = Units.buffPlan(copies, group.cd > 0 and group.cd or group.buff.cd, dur, group.base, cap, group.buff.follow)
+        local ready, best, soon = 0, nil, nil
+        for _, copy in ipairs(group.copies) do
+            -- Without a readable buff value the level a copy carries is the one our timing says is up.
+            copy.carried = state.confirmed and copy.level or (copy.linked > 0 and top or 0)
+            if copy.ready then
+                ready = ready + 1
+                if not best or copy.carried > best.carried + 0.01 or (math.abs(copy.carried - best.carried) <= 0.01 and copy.linked > best.linked) then
+                    best = copy
+                end
+            else
+                soon = math.min(soon or copy.wait, copy.wait)
+            end
+        end
+        local go, why, wait = false, nil, nil
+        if group.reach.covered <= 0 then
+            why = "no " .. tostring(group.kind) .. " attacker stands in range of a copy yet"
+        elseif # Match.enemies == 0 then
+            why = "no enemies on the field"
+        elseif not best then
+            why, wait = "every copy is on cooldown", soon
+        else
+            go, why, wait = Units.buffDecide(plan, live, now - state.last, Match.buffDanger())
+        end
+        if go and not pick then
+            pick = best.model
+            Match.buffPending = {
+                attack = group.attack,
+                level = math.min(cap, (1 + group.base) * (1 + math.max(0, best.carried)) - 1),
+                why = why
+            }
+        end
+        local linked = 0
+        for _, copy in ipairs(group.copies) do
+            if copy.linked == copies - 1 then
+                linked = linked + 1
+            end
+        end
+        local effect
+        if state.confirmed then
+            effect = string.format("effect now +%d%% (seen in the match)", math.floor(group.seen * 100 + 0.5))
+        elseif state.done > 0 then
+            effect = string.format("effect about +%d%% (estimate from timings: the game shows no buff value here)", math.floor(top * 100 + 0.5))
+        else
+            effect = "no buff cast yet"
+        end
+        local cover = group.reach.total > 0 and string.format("%d%% of %s damage in range", math.floor(group.reach.covered / group.reach.total * 100 + 0.5), tostring(group.kind)) or ("no " .. tostring(group.kind) .. " attacker placed")
+        table.insert(lines, string.format("%s ×%d · %d ready · %s · %s%s · %s%s", Units.name(group.id), copies, ready, effect, cover,
+            (copies > 1 and linked < copies) and string.format(" · only %d of %d copies reach each other", linked, copies) or "",
+            go and ("casting: " .. tostring(why)) or ("waiting: " .. tostring(why)), (not go and wait) and string.format(" (%ds)", math.ceil(wait)) or ""))
+    end
+    Match.buffText = # lines > 0 and table.concat(lines, "\n") or "no Commander, Windsong or Leafy on the field"
+    return pick
+end
+
+-- A cast went out: remember it, then check two seconds later that the game really took it.
+function Match.autoBuffCast(unit, stats, attack, types)
+    local pending = Match.buffPending
+    local state = Match.buffState and Match.buffState [attack]
+    if not state then
+        return
+    end
+    local cast = {
+        at = Utils.now(),
+        level = (pending and pending.attack == attack and pending.level) or 0,
+        by = unit
+    }
+    table.insert(state.casts, cast)
+    state.last, state.done = cast.at, state.done + 1
+    task.delay(2, function()
+        if not App.alive then
+            return
+        end
+        local last = stats:FindFirstChild("last_active_cast")
+        if last and tick() - (tonumber(last.Value) or 0) > 8 then
+            -- The game did not start its cooldown: the cast failed, so the order is worked out again.
+            local index = table.find(state.casts, cast)
+            if index then
+                table.remove(state.casts, index)
+            end
+            state.last = - 99
+            App.log(2, "BUFF", Units.name(stats.id.Value) .. ": the cast did not go through, the rotation is recalculated")
+            return
+        end
+        local seen = Match.buffLevel(types)
+        if seen > 0.02 then
+            state.confirmed = true
+            cast.level = seen
+        end
+    end)
+end
+
 function Match.actives()
     if not Config.actives or Match.activeBusy then
         return
     end
     local now = tick()
     local now2 = Utils.now()
-    local relayCaster = Match.relayBuffChoice(now2, now)
+    local relayCaster = Match.autoBuffPick(now2, now)
     for _, unit in ipairs(Match.mine) do
         local stats = unit._stats
         local activeAttack, activeAttackCooldown, lastActiveCast = stats:FindFirstChild("active_attack"), stats:FindFirstChild("active_attack_cooldown"), stats:FindFirstChild("last_active_cast")
@@ -38160,11 +38833,8 @@ function Match.actives()
                     fusionReady, str = true, "on study: what it does"
                 elseif Match.isGale(stats, tostring(activeAttack.Value)) then
                     fusionReady, str = Match.gale(unit, stats, tostring(activeAttack.Value), now2)
-                elseif attackInfo.ally and Config.community and (function()
-                    local buff = Units.allyBuff(stats.id.Value)
-                    return buff and buff.chain
-                end)() then
-                    fusionReady, str = relayCaster == unit, "buff relay: sustain the strongest available buff"
+                elseif attackInfo.ally and Units.chainOn(stats.id.Value) then
+                    fusionReady, str = relayCaster == unit, "Auto Buff: " .. tostring(Match.buffPending and Match.buffPending.why or "rotation")
                     isRelay = fusionReady
                 elseif attackInfo.ally and Brain.stack [activeAttack.Value] and Brain.stack [activeAttack.Value].stacks and Config.community then
                     fusionReady, str, rotInterval = Match.buffRotation(unit, stats, tostring(activeAttack.Value), attackInfo, tonumber(attackInfo.ally.time) or 30, now2)
@@ -38275,8 +38945,7 @@ function Match.actives()
                                 Match.buffNext[tostring(activeAttack.Value)] = Utils.now() + rotInterval
                             end
                             if isRelay then
-                                Match.relayNext = Match.relayNext or {}
-                                Match.relayNext[activeAttack.Value] = Utils.now() + 3
+                                Match.autoBuffCast(unit, stats, tostring(activeAttack.Value), attackInfo.ally.types)
                             end
                             Match.casts = Match.casts or {
                             }
@@ -42794,7 +43463,6 @@ GUI.NAV_SCHEMA = {
         { "Log", "scroll-text" }, { "Spending", "wallet" },
         { "History", "history" }, { "Systems", "activity" },
     } },
-    { Name = "TESTING", Icon = "flask-conical" },
     { Name = "Settings", Icon = "settings", Pages = {
         { "General", "settings-2" }, { "Profiles", "save" },
         { "Theme", "palette" }, { "Updates", "newspaper" },
@@ -42903,6 +43571,8 @@ GUI.SHORT_TEXT = {
     ["Auto Upgrade"] = { "Upgrade units", "Buys the upgrade that adds the most damage per yen." },
     ["Auto Abilities"] = { "Use abilities", "Casts buffs and damage abilities. Fusion needs this ON." },
     ["Auto Start"] = { "Vote to start waves", "Votes to start once the first unit is placed." },
+    ["Auto Buff"] = { "Auto Buff", "Rotates Commander / Windsong / Leafy copies and plans around it." },
+    ["Auto Buff Type"] = { "Buff type", "Auto, or keep only Physical or only Magic buffers." },
     ["Smart Targeting"] = { "Smart targeting", "Control units hold the front, heavy hitters take the boss." },
     ["Use The Simulator"] = { "Simulate before playing", "Predicts each mode with your team. The planner needs this ON." },
     ["Search For Best Spots"] = { "Plan unit spots", "Tries spots for each attacker when a match starts." },
@@ -43036,6 +43706,7 @@ function GUI.controlDependency(name)
     if name == "Auto Place" or name == "Auto Upgrade" or name == "Auto Abilities" or name == "Auto Start" or name == "Smart Targeting" then
         return function() return Config.battle == true end
     end
+    if name == "Auto Buff" then return function() return Config.battle == true and Config.actives == true end end
     -- The planner is built on the simulator.
     if name == "Search For Best Spots" or name == "Plan Best Teams" then
         return function() return Config.sim == true end
@@ -45178,6 +45849,26 @@ function GUI.build()
             return math.floor(arg1) .. "s"
         end
     })
+    helper2(tab, "Auto Buff", "Commander raises physical damage, Windsong and Leafy raise magic. Copies stand as one group and cast in turn so the buff climbs and stays up. Counted when the team is picked and at every buy", "autoBuff")
+    ui.autoBuffKind = tab:Dropdown("Auto Buff Type", "Auto follows your attackers. Physical or Magic keeps buffers of the other kind off the field", {
+        "Auto",
+        "Physical",
+        "Magic"
+    }, ({
+        auto = 1,
+        physical = 2,
+        magic = 3
+    }) [tostring(Config.autoBuffKind)] or 1, function(_arg1, _arg2, arg3)
+        helper("autoBuffKind", ({
+            "auto",
+            "physical",
+            "magic"
+        }) [tonumber(arg3) or 1] or "auto")
+        Modes.lastScored = nil
+    end)
+    GUI.buffInfo = tab:KeyValue({
+        "Auto Buff status"
+    }, 90)
     helper2(tab, "Auto Start", "Votes to start once the first unit is down", "autoStart")
     helper2(tab, "Smart Targeting", "Crowd control holds the front, heavy hitters take the boss", "smartTarget")
     tab:Section("Your team at full upgrade")
@@ -45316,48 +46007,6 @@ function GUI.build()
         helper("logLevel", math.clamp((tonumber(arg3) or 2) - 1, 0, 2))
     end)
     helper2(tab, "Print To Console", "Mirrors log lines to the executor console", "logConsole")
-    tab = window:Tab("🧪", "TESTING")
-    tab:Section("One Namek Infinite run")
-    GUI.namekReport = tab:Paragraph(GUI.namekTestText())
-    tab:Section("Fused Hero on Namek")
-    local fusionKeys = { "Result", "Current team", "Best regular lineup", "Fusion lineup" }
-    GUI.fusionCompare = tab:KeyValue(fusionKeys, 90)
-    local function showFusion(rows)
-        for _, key in ipairs(fusionKeys) do
-            pcall(GUI.fusionCompare.Set, key, rows[key] or "")
-        end
-    end
-    showFusion(GUI.fusionCompareRows(nil, "Compares your current team, the best regular lineup and the Carrot + Vego lineup on Namek Infinite."))
-    tab:Button("🧪", "Compare Fused Hero on Namek", "Simulate your current team, the best regular lineup and the Carrot + Vego lineup on Namek Infinite.", function()
-        if GUI.fusionRunning then return end
-        GUI.fusionRunning = true
-        showFusion(GUI.fusionCompareRows(nil, "Simulating Namek Infinite…"))
-        local ok, result, reason = pcall(Simulator.testNamekFusion)
-        GUI.fusionRunning = false
-        if not ok then
-            Simulator.finishProgress()
-            result, reason = nil, "Fusion comparison failed: " .. tostring(result)
-        end
-        local rows = GUI.fusionCompareRows(result, reason)
-        showFusion(rows)
-        App.log(1, "TEST", rows["Result"])
-    end)
-    tab:Section("One Namek Infinite run")
-    tab:Button("🧪", "Arm Namek Infinite test", "Arm one test, then enter Namek Infinite with Auto Farm and battle automation enabled.", function()
-        if Match.namekTest and not Match.namekTest.finished then
-            return helper6("TESTING", "The current test is running.", "warning")
-        end
-        if App.where ~= "lobby" then
-            return helper6("TESTING", "Arm the test in the lobby before entering Namek Infinite.", "warning")
-        end
-        if not (Config.master and Config.battle and Config.actives) then
-            return helper6("TESTING", "Enable Auto Farm, battle automation and Auto Abilities first.", "warning")
-        end
-        Brain.namekTest = { armedAt = os.time() }
-        App.saveNow()
-        GUI.namekReport:Set(GUI.namekTestText())
-        helper6("TESTING", "Enter Namek Infinite within 15 minutes.", "success")
-    end)
     tab = window:Tab("⚙️", "Settings")
     helper7(tab, "Everything else. Settings save by themselves.")
     tab:Section("General")
@@ -45842,6 +46491,19 @@ function GUI.update()
                 pcall(GUI.team.Set, tostring(i), "", nil, "")
             end
         end
+    end
+    if GUI.buffInfo then
+        local text
+        if Config.autoBuff == false then
+            text = "Off · buffers cast one at a time, no rotation"
+        elseif not (Config.battle and Config.actives) then
+            text = "Waiting · turn ON Battle automation and Use abilities"
+        elseif App.where == "match" then
+            text = Match.buffText or "no Commander, Windsong or Leafy on the field"
+        else
+            text = string.format("On · type %s · in a match: copies down, the effect and why it waits", tostring(Config.autoBuffKind or "auto"))
+        end
+        pcall(GUI.buffInfo.Set, "Auto Buff status", text)
     end
     if GUI.start then
         local ok, res = pcall(GUI.startView, col)
