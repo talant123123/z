@@ -10,7 +10,7 @@ local AIRFLOW_SOURCE = [====[
 -- Teleports use this edition's local cache instead of fetching the old UI script.
 -- Statically checked; not run inside Roblox.
 
-local VERSION = "2.8"
+local VERSION = "2.9"
 if _G.AA_SF and _G.AA_SF.alive then
     if _G.AA_SF.version == VERSION then
         warn("[awaqwaa] v" .. VERSION .. " is already running")
@@ -1047,6 +1047,31 @@ table.insert(CHANGELOG, 1, {
             "Planner no longer stops with ready evolutions",
             "When your own team was kept and an evolution was ready, the comparison read a clear time that was not there and the search ended with an error.",
             "FIX"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
+    v = "2.9",
+    date = "Nov 17, 2026",
+    title = "Three fixes from a real match",
+    items = {
+        {
+            "♾️",
+            "End Infinite Early waits for Auto Play",
+            "With Auto Play off the farm doesn't start the next mode, so it no longer ends an Infinite run and sells your units for one.",
+            "FIXED"
+        },
+        {
+            "🧪",
+            "The buff test keeps every run",
+            "When the rotation stops (a copy left the field), that run's result is kept and listed under Earlier runs, and the saved result has it too. Before, a restart wiped it. No new rotation starts while the run is ending.",
+            "FIXED"
+        },
+        {
+            "👥",
+            "A team planned for one mode stays there",
+            "A team the planner put aside for a dungeon room only goes on in that dungeon, and a team put aside more than 30 minutes ago is dropped. Before, last night's dungeon team went on at the start of an Infinite run.",
+            "FIXED"
         }
     }
 })
@@ -35432,6 +35457,8 @@ function Dungeon.startTeam(uuids, arg2, label, arg4)
         must = true,
         own = arg4 or nil,
         seed = tostring(arg2.r._r),
+        kind = "dungeon",
+        at = os.time(),
         why = label
     }
 end
@@ -36156,7 +36183,8 @@ function Match.infWave(arg1)
             App.log(1, "ERROR", "leave when trained: " .. tostring(res))
         end
     end
-    if Config.infiniteStop and not Match.stopping then
+    -- With Auto Play off nothing starts after this run, so ending it early would only throw the run away.
+    if Config.infiniteStop and Config.master and Config.play and not Match.stopping then
         local ok, res = pcall(Match.infStop, arg1)
         if not ok then
             App.log(1, "ERROR", "Infinite stop: " .. tostring(res))
@@ -40172,6 +40200,29 @@ function Match.buffTraceSample(trace, level, now)
     trace.peak = math.max(trace.peak, level)
 end
 
+-- A rotation ended: keep what it did, so a restart doesn't wipe the result.
+function Match.buffTraceArchive(trace, now)
+    if not trace.startedAt then
+        return
+    end
+    trace.history = trace.history or {
+    }
+    table.insert(trace.history, string.format("%ds, highest +%d%%, %s: %s", math.floor(trace.total), math.floor(trace.peak * 100 + 0.5),
+        trace.fullAt and string.format("+100%% held %ds of %ds", math.floor(trace.at100), math.floor(trace.fullTime or 0)) or "+100% not reached",
+        (Match.buffVerdict(trace):gsub("%..*$", ""))))
+    while # trace.history > 3 do
+        table.remove(trace.history, 1)
+    end
+    trace.startedAt = nil
+    if Config.buffTest then
+        Brain.buffTest = {
+            at = os.time(),
+            text = Match.buffTestText()
+        }
+        App.saveSoon()
+    end
+end
+
 function Match.buffVerdict(trace)
     if not trace.startedAt then
         return "NOT STARTED: " .. tostring(trace.why or "waiting for the copies")
@@ -40236,6 +40287,9 @@ function Match.buffTestText()
         table.insert(lines, # casts > 0 and ("Casts: " .. table.concat(casts, " · ")) or "Casts: none yet")
         if not trace.startedAt or trace.why then
             table.insert(lines, "Now: " .. tostring(trace.why or "-"))
+        end
+        if trace.history and # trace.history > 0 then
+            table.insert(lines, "Earlier runs: " .. table.concat(trace.history, " | "))
         end
         if # trace.events > 0 then
             table.insert(lines, "Events: " .. table.concat(trace.events, " · "))
@@ -40335,6 +40389,7 @@ function Match.autoBuffPick(now, clock)
             if # squad < need then
                 App.log(1, "BUFF", string.format("%s: a copy of the rotation left the field, so it waits for %d copies within each other's range again", Units.name(group.id), need))
                 Match.buffTraceEvent(trace, "a rotation copy left the field: waiting for a full squad again", now)
+                Match.buffTraceArchive(trace, now)
                 state.squad, squad = nil, nil
                 state.casts, live, top = {
                 }, {
@@ -40373,6 +40428,8 @@ function Match.autoBuffPick(now, clock)
                 end
             elseif ready < need then
                 why, wait = string.format("%d of %d squad copies ready: the rotation starts with all of them off cooldown", ready, need), soon
+            elseif Match.stopping then
+                why = "the run is ending: no new rotation"
             elseif not test and group.reach.covered <= 0 then
                 why = "no " .. tostring(group.kind) .. " attacker stands in range of the copies yet"
             elseif not test and # Match.enemies == 0 then
@@ -43463,7 +43520,8 @@ function Match.finish()
                 diff = mode.diff,
                 label = mode.label
             },
-            why = (str == "replay" and "replay: " or "next act: ") .. tostring(mode.label)
+            why = (str == "replay" and "replay: " or "next act: ") .. tostring(mode.label),
+            at = os.time()
         }
     end
     local saved = App.saveNow()
@@ -43658,6 +43716,15 @@ function Match.startTeam()
     App.saveSoon()
     App.listenGame()
     if startTeam.train and startTeam.train.key ~= Match.key then
+        return
+    end
+    -- A dungeon room's team (it carries the room's seed) goes on in that dungeon only.
+    if (startTeam.kind == "dungeon" or startTeam.seed) and Match.kind ~= "dungeon" then
+        App.log(1, "TEAM", string.format("the team put aside for %s isn't for this match (%s): your team stays", tostring(startTeam.why), tostring(Match.kind)))
+        return
+    end
+    if startTeam.at and os.time() - (tonumber(startTeam.at) or 0) > 1800 then
+        App.log(1, "TEAM", string.format("the team put aside for %s is more than 30 minutes old: your team stays", tostring(startTeam.why)))
         return
     end
     if startTeam.seed and tostring(Brain.dg.room and Brain.dg.room.seed) ~= tostring(startTeam.seed) then
