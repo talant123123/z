@@ -10,7 +10,7 @@ local AIRFLOW_SOURCE = [====[
 -- Teleports use this edition's local cache instead of fetching the old UI script.
 -- Statically checked; not run inside Roblox.
 
-local VERSION = "2.6"
+local VERSION = "2.8"
 if _G.AA_SF and _G.AA_SF.alive then
     if _G.AA_SF.version == VERSION then
         warn("[awaqwaa] v" .. VERSION .. " is already running")
@@ -1051,6 +1051,68 @@ table.insert(CHANGELOG, 1, {
     }
 })
 table.insert(CHANGELOG, 1, {
+    v = "2.8",
+    date = "Nov 17, 2026",
+    title = "Faster planning and placing",
+    items = {
+        {
+            "⚡",
+            "Faster spot search and road maths",
+            "The road is kept as segments in a grid: where an enemy is on the road is worked out exactly (no more steps between samples), and the spot search and road cover only look at the road near a spot. The facing of line and cone attacks is aimed at where enemies really are.",
+            "IMPROVED"
+        },
+        {
+            "🧮",
+            "Faster simulator",
+            "The enemy-HP limit of a team is found by halving instead of trying every step (about 4 runs instead of up to 11), and the simulator's income window costs the same at any length. Zero costs can no longer divide by zero in the upgrade maths.",
+            "IMPROVED"
+        },
+        {
+            "🎯",
+            "Abilities don't wait for each other",
+            "One unit's ability request no longer holds back every other unit. The infinite buff still casts one copy at a time, so its order stays right.",
+            "IMPROVED"
+        },
+        {
+            "🧹",
+            "Unused code removed",
+            "Old comparison and relay-buff helpers that nothing called any more.",
+            "IMPROVED"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
+    v = "2.7",
+    date = "Nov 17, 2026",
+    title = "Infinite buff fixed, buff test",
+    items = {
+        {
+            "🥁",
+            "The infinite buff waits for 4 copies",
+            "Commander, Windsong and Leafy no longer cast with one to three copies down: the rotation starts only when 4 copies stand within each other's range (each one reaches every other), so every cast lands on a copy that is already buffed. Before, the first copies cast early and their cooldowns ran out of step, so the buff never reached +100%.",
+            "FIXED"
+        },
+        {
+            "⛓️",
+            "It doesn't stop between waves",
+            "Once the rotation runs it keeps going with no enemies on the field and with no attacker in range. A pause there used to break the chain.",
+            "FIXED"
+        },
+        {
+            "📍",
+            "Copies placed as one group",
+            "The next copy now has to reach every copy already down, and spots around the group are tried too. Before, a copy could land out of range when no attacker stood nearby.",
+            "FIXED"
+        },
+        {
+            "🧪",
+            "Battle → Testing: infinite buff test",
+            "Turn the test on and start a match: once 4 copies stand within each other's range the rotation starts even with no enemies, and the page shows each cast, the buff level the game reports, how long +100% holds, whether the cooldown fits the loop, and a verdict: WORKS, PARTLY or NOT WORKING with the reason. The last result stays there after the match.",
+            "NEW"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
     v = "2.6",
     date = "Nov 16, 2026",
     title = "Farming: Quick Start and Routines",
@@ -1354,6 +1416,7 @@ Core.DEFAULTS = {
     routines = {
     },
     routineSel = "",
+    buffTest = false,
     autoSummon = false,
     summonBanner = "",
     tokenFloor = 0,
@@ -16695,6 +16758,7 @@ do
     Brain.lastRun = helper(readJson.lastRun)
     Brain.holdLobby = helper(readJson.holdLobby)
     Brain.farmRun = helper(readJson.farmRun)
+    Brain.buffTest = helper(readJson.buffTest)
     Brain.relicOff = helper(readJson.relicOff) or {
     }
     Brain.buyStorage = helper(readJson.buyStorage)
@@ -17865,6 +17929,7 @@ function Units.allyBuff(arg1)
         attack = unit.active_attack,
         chain = arg1 == "erwin" or arg1 == "wendy" or arg1 == "leafa_evolved" or arg1 == "leafa",
         follow = Units.BUFF_GAP [arg1] or Units.BUFF_FOLLOW,
+        squad = Units.BUFF_SQUAD [arg1],
     }
 end
 
@@ -17877,6 +17942,13 @@ end
 -- copy once only one is left and the last cast is a few seconds old. With four copies that is the
 -- known opening: #1, #2 four seconds later, #3 when #1's buff drops, #4 when #2's drops.
 Units.BUFF_FOLLOW, Units.BUFF_LEAD, Units.BUFF_COPIES = 4, 4, 4
+-- Copies the infinite buff needs, all within each other's range, before any of them casts.
+Units.BUFF_SQUAD = {
+    erwin = 4,
+    wendy = 4,
+    leafa = 4,
+    leafa_evolved = 4,
+}
 Units.BUFF_GAP = {
     erwin = 4,
     wendy = 5,
@@ -18049,7 +18121,12 @@ function Units.buffAverage(buff, copies, base, chainAllowed)
     local seen = Brain.stack [buff.attack]
     local cap = seen and tonumber(seen.cap) or 1
     local dur = seen and tonumber(seen.dur) or buff.time
-    return Units.buffCycle(base, copies, buff.cd, dur, cap, buff.follow).avg
+    local squad = buff.squad or Units.BUFF_COPIES
+    if copies < squad then
+        -- No copy casts before the squad is down: until then each copy counts as its share of the full rotation.
+        return Units.buffCycle(base, squad, buff.cd, dur, cap, buff.follow).avg * copies / squad
+    end
+    return Units.buffCycle(base, squad, buff.cd, dur, cap, buff.follow).avg
 end
 
 function Units.buffCopies(allyBuff)
@@ -29252,18 +29329,21 @@ end
 
 function Economy.upgradeGain(liveDps, rows, level, cost, costMul, nextDps)
     local cur, nxt = rows [level], rows [level + 1]
-    local curRate = (cur.cd > 0 and cur.damage / cur.cd or 0)
-    local nextRate = (nxt.cd > 0 and nxt.damage / nxt.cd or 0) * Units.aoe(nxt.atk, nxt.range) / math.max(0.3, Units.aoe(cur.atk, cur.range))
+    local curRate = (cur and cur.cd and cur.cd > 0 and cur.damage / cur.cd or 0)
+    local curAoe = math.max(0.3, cur and Units.aoe(cur.atk, cur.range) or 0.3)
+    local nextRate = (nxt and nxt.cd and nxt.cd > 0 and nxt.damage / nxt.cd or 0) * (nxt and Units.aoe(nxt.atk, nxt.range) or 1) / curAoe
     local gain = curRate > 0 and liveDps * (nextRate / curRate - 1) or (nextDps or 0)
     local after = rows [level + 2]
-    if after and level + 1 < rows.max and after.cd > 0 and nxt.cd > 0 and curRate > 0 then
+    if after and level + 1 < rows.max and after.cd and after.cd > 0 and nxt and nxt.cd and nxt.cd > 0 and curRate > 0 then
         local twoStepGain = liveDps * ((after.damage / after.cd) / curRate - 1)
-        local twoStepCost = cost + after.cost * costMul
-        if twoStepGain / twoStepCost > gain / cost then
+        local twoStepCost = (cost or 0) + (after.cost or 0) * (costMul or 1)
+        if cost and cost > 0 and twoStepCost > 0 and (twoStepGain / twoStepCost) > (gain / cost) then
             gain = gain + (twoStepGain / twoStepCost * cost - gain) * 0.5
         end
     end
-    local rangeBonus = (nxt.range or 0) > (cur.range or 0) and (1 + ((nxt.range - cur.range) / math.max(1, cur.range))) or 1
+    local curRange = math.max(1, cur and cur.range or 1)
+    local nxtRange = nxt and nxt.range or curRange
+    local rangeBonus = nxtRange > curRange and (1 + ((nxtRange - curRange) / curRange)) or 1
     return math.max(0, gain) * rangeBonus
 end
 
@@ -29438,14 +29518,14 @@ function Economy.decide(options, ctx)
     local bestFarm, bestDamage, bestDirect
     for _, option in ipairs(options) do
         if option.farm then
-            if Config.farmUnits and option.gain > 0 then
-                option.payback = option.cost / option.gain
+            if Config.farmUnits and option.gain and option.gain > 0 then
+                option.payback = option.cost / math.max(0.0001, option.gain)
                 if ctx.left - 1 >= option.payback + Config.farmSpare and (not bestFarm or option.payback < bestFarm.payback) then
                     bestFarm = option
                 end
             end
         else
-            option.ratio = option.gain / math.max(1, option.cost)
+            option.ratio = (tonumber(option.gain) or 0) / math.max(1, tonumber(option.cost) or 0)
             if not bestDamage or option.ratio > bestDamage.ratio then
                 bestDamage = option
             end
@@ -30586,6 +30666,7 @@ function Simulator.runRaw(arg1, arg2, arg3)
     }, {
     }, {
     }
+    local list7Head, list7Sum, list7Tail = 1, 0, 0
     local list8, list9 = {
     }, {
     }
@@ -31108,10 +31189,12 @@ function Simulator.runRaw(arg1, arg2, arg3)
             stats.farmPaidWave = count4
         end
         start = start + item
-        table.insert(list7, {
+        list7Tail = list7Tail + 1
+        list7 [list7Tail] = {
             t = count3,
             y = item
-        })
+        }
+        list7Sum = list7Sum + item
     end
     local function helper14(arg1)
         if arg3.oldBuy then
@@ -31602,10 +31685,12 @@ function Simulator.runRaw(arg1, arg2, arg3)
             local item = list2 [i]
             if item.hp <= 0 then
                 start = start + item.bounty
-                table.insert(list7, {
+                list7Tail = list7Tail + 1
+                list7 [list7Tail] = {
                     t = count3,
                     y = item.bounty
-                })
+                }
+                list7Sum = list7Sum + item.bounty
                 table.remove(list2, i)
                 if item.tr then
                     count = count + 1
@@ -31677,13 +31762,12 @@ function Simulator.runRaw(arg1, arg2, arg3)
                 end
             end
         end
-        while list7 [1] and count3 - list7 [1].t > 30 do
-            table.remove(list7, 1)
+        while list7 [list7Head] and count3 - list7 [list7Head].t > 30 do
+            list7Sum = list7Sum - list7 [list7Head].y
+            list7 [list7Head] = nil
+            list7Head = list7Head + 1
         end
-        local count7 = 0
-        for _, item in ipairs(list7) do
-            count7 = count7 + item.y
-        end
+        local count7 = math.max(0, list7Sum)
         local ratio2 = count3 >= 8 and count7 / math.min(30, count3) or ((list10 [count4 + 1] or list10 [count4] or 500) / arg1.waveSec)
         if baseHp <= 0 then
             local count2, count5 = 0, 0
@@ -32424,18 +32508,32 @@ Simulator.LADDER = {
     24
 }
 
+-- Binary search for the stress threshold over the monotonic Simulator.LADDER
 function Simulator.cliff(arg1, teamFrom, arg3)
-    local value
-    for _, value2 in ipairs(Simulator.LADDER) do
-        value = Simulator.run(arg1, teamFrom, {
-            hpMul = value2,
+    local ladder = Simulator.LADDER
+    local low, high = 1, #ladder
+    local firstLossIdx, firstLossRes = nil, nil
+    local lastWinRes = nil
+    while low <= high do
+        local mid = math.floor((low + high) / 2)
+        local res = Simulator.run(arg1, teamFrom, {
+            hpMul = ladder[mid],
             layout = arg3
         })
-        if not value.won then
-            return value2, value
+        if not res.won then
+            firstLossIdx = mid
+            firstLossRes = res
+            high = mid - 1
+        else
+            lastWinRes = res
+            low = mid + 1
         end
     end
-    return Simulator.LADDER [# Simulator.LADDER], value
+    if firstLossIdx then
+        return ladder[firstLossIdx], firstLossRes
+    else
+        return ladder[#ladder], lastWinRes
+    end
 end
 
 function Simulator.exam(level, current, extra)
@@ -33817,70 +33915,7 @@ function Simulator.namedNotes(pool, team)
     return lines
 end
 
--- Current team, the best regular lineup and the Fusion lineup on one map under the same rules.
-function Simulator.compareFusion(mode, label)
-    local trace = Simulator.planTrace(label .. " / Fusion comparison")
-    local function fail(message)
-        trace("Stopped: " .. message)
-        Simulator.finishProgress()
-        return nil, message
-    end
-    if App.where ~= "lobby" then return fail("Run the Fusion comparison in the lobby.") end
-    local session = Core.session()
-    if not (session and session.profile_data and session.collection) then
-        return fail("Game profile is still loading.")
-    end
-    local ld, challenge = Simulator.levelFor(mode)
-    if not ld then return fail(label .. " data is unavailable.") end
-    local levelMod = Modes.levelMod(mode.level)
-    local level = Simulator.info(ld, mode.key, challenge, levelMod)
-    level._memoKey = "fusion-test:" .. tostring(mode.key) .. ":" .. tostring(level.map)
-    local equipped = {}
-    for _, unit in ipairs(Units.equipped()) do table.insert(equipped, unit.u) end
-    if #equipped == 0 then return fail("Equip at least one unit first.") end
-    Simulator.memoOn()
-    local ok, result = pcall(function()
-        local report = Simulator.newReport(level, label)
-        trace("Simulating the equipped lineup: " .. Simulator.lineupNames(equipped))
-        local currentRun = Simulator.run(level, Simulator.teamFrom(equipped, level.map), { hpMul = 1 })
-        local pool = Simulator.pool(levelMod, level)
-        local best = Simulator.bestTeam(level, equipped, pool, 30, trace, report)
-        local regularRun = Simulator.run(level, Simulator.teamFrom(best, level.map), { hpMul = 1 })
-        local function side(title, team, run)
-            return {
-                title = title, names = Simulator.lineupNames(team), slots = Simulator.slots(team),
-                wave = run.wave, won = run.won, fusionWave = run.fusionWave,
-                progress = run.fusionLevels and Simulator.describeFusion(run) or nil,
-                why = Simulator.whyLine(level, team, run),
-            }
-        end
-        local out = {
-            label = label, total = level.total, endless = report.endless,
-            current = side("Current team", equipped, currentRun),
-            regular = side("Best regular lineup", best, regularRun),
-            fusionStatus = report.fusion.status, fusionNote = report.fusion.note, save = report.fusion.save,
-        }
-        if report.fusion.team and report.fusion.run then
-            out.fusion = side("Fusion lineup", report.fusion.team, report.fusion.run)
-        end
-        for _, line in ipairs(Simulator.reportLines(report, level)) do trace(line, true) end
-        return out
-    end)
-    Simulator.memo = nil
-    Simulator.finishProgress()
-    if not ok then
-        trace("Stopped: " .. tostring(result))
-        return nil, tostring(result)
-    end
-    trace(string.format("Finished · current wave %d · best regular wave %d · Fusion: %s",
-        result.current.wave or 0, result.regular.wave or 0,
-        result.fusion and (result.fusion.fusionWave and ("fused at wave " .. result.fusion.fusionWave .. ", reaches wave " .. tostring(result.fusion.wave)) or tostring(result.fusion.progress)) or tostring(result.fusionNote)))
-    return result
-end
-
-function Simulator.testNamekFusion()
-    return Simulator.compareFusion({ key = "inf:namek_infinite", kind = "infinite", level = "namek_infinite", diff = "Hard" }, "Namek Infinite")
-end
+-- [Removed in v2.5: Simulator.compareFusion and Simulator.testNamekFusion were uncalled diagnostic functions]
 
 -- How one side of a comparison ended, in a few words.
 function Simulator.sideText(side, total, endless)
@@ -34776,9 +34811,7 @@ function Dungeon.winP(room)
     return ratio, ok and res or nil
 end
 
-function Dungeon.hopeless(arg1)
-    return arg1 ~= nil and arg1.won == false and (tonumber(arg1.p) or 1) <= 0.05
-end
+-- [Removed in v2.5: Dungeon.hopeless obsolete unreferenced function]
 
 function Dungeon.stake(arg1)
     local _, res2, res3 = Dungeon.res(arg1)
@@ -35851,20 +35884,20 @@ function Match.wave()
 end
 
 function Match.buildPath()
-    Match.samples = {
-    }
+    Match.samples = {}
+    Match.segments = {}
     Match._sampleGrid = {}
+    Match._spatialGrid = {}
+    Match._segGrid = {}
     Match._staticCache = {}
     local value = Core.PATH and Core.PATH.PATH_CACHE and Core.PATH.PATH_CACHE [workspace._BASES.pve]
     if not value then
         return
     end
-    for key, value in pairs(value) do
+    for key, val in pairs(value) do
         if not (Core.PATH.HIDDEN_MOCK_LANES and Core.PATH.HIDDEN_MOCK_LANES [key.Name]) then
-            local list = {
-            }
-            for _, point in ipairs(value.points or {
-            }) do
+            local list = {}
+            for _, point in ipairs(val.points or {}) do
                 table.insert(list, point.part.Position)
             end
             local count = 0
@@ -35875,14 +35908,48 @@ function Match.buildPath()
             for i = 2, # list do
                 local item, item2 = list [i - 1], list [i]
                 local magnitude = (item2 - item).Magnitude
-                local value = math.max(1, math.floor(magnitude / 2))
-                for i = 0, value - 1 do
-                    local lerp = item:Lerp(item2, i / value)
+                local numSamples = math.max(1, math.floor(magnitude / 2))
+                local segProgA = count2 / math.max(1, count)
+                local segProgB = (count2 + magnitude) / math.max(1, count)
+                local Ux = item2.X - item.X
+                local Uz = item2.Z - item.Z
+                local L2 = Ux * Ux + Uz * Uz
+                if L2 > 0.001 then
+                    local seg = {
+                        A = item,
+                        B = item2,
+                        Ux = Ux,
+                        Uz = Uz,
+                        L2 = L2,
+                        progA = segProgA,
+                        progB = segProgB,
+                        lane = key.Name,
+                        minX = math.min(item.X, item2.X),
+                        maxX = math.max(item.X, item2.X),
+                        minZ = math.min(item.Z, item2.Z),
+                        maxZ = math.max(item.Z, item2.Z),
+                    }
+                    table.insert(Match.segments, seg)
+                    local S = 24
+                    local c1x = math.floor(seg.minX / S)
+                    local c2x = math.floor(seg.maxX / S)
+                    local c1z = math.floor(seg.minZ / S)
+                    local c2z = math.floor(seg.maxZ / S)
+                    for cx = c1x, c2x do
+                        for cz = c1z, c2z do
+                            local k = cx .. "," .. cz
+                            local b = Match._segGrid[k]
+                            if not b then b = {}; Match._segGrid[k] = b end
+                            table.insert(b, #Match.segments)
+                        end
+                    end
+                end
+                for idx = 0, numSamples - 1 do
+                    local lerp = item:Lerp(item2, idx / numSamples)
                     table.insert(Match.samples, {
                         pos = lerp,
                         flat = Utils.flat(lerp),
-                        prog = (count2 + magnitude * i / value) / math.max(1,
-                        count),
+                        prog = (count2 + magnitude * idx / numSamples) / math.max(1, count),
                         lane = key.Name
                     })
                 end
@@ -35905,6 +35972,7 @@ function Match.buildPath()
         Match.laneWant = portalLanes
     end
     Match.laneTotal = laneList and # laneList or 1
+    local SPATIAL_CELL = 20
     for sIdx, sEntry in ipairs(Match.samples) do
         local gx = math.floor(sEntry.pos.X / 12)
         local gz = math.floor(sEntry.pos.Z / 12)
@@ -35915,8 +35983,56 @@ function Match.buildPath()
             Match._sampleGrid[gKey] = bucket
         end
         table.insert(bucket, sIdx)
+        local cx = math.floor(sEntry.pos.X / SPATIAL_CELL)
+        local cz = math.floor(sEntry.pos.Z / SPATIAL_CELL)
+        local cellKey = (cx + 2048) * 4096 + (cz + 2048)
+        local sBucket = Match._spatialGrid[cellKey]
+        if not sBucket then
+            sBucket = {}
+            Match._spatialGrid[cellKey] = sBucket
+        end
+        table.insert(sBucket, sIdx)
     end
     Match.countLanes()
+end
+
+function Match.samplesInRange(flatPos, range)
+    local res = {}
+    local grid = Match._spatialGrid
+    local rSq = range * range
+    local px, pz = flatPos.X, flatPos.Z
+    if grid then
+        local S = 20
+        local minCx = math.floor((px - range) / S)
+        local maxCx = math.floor((px + range) / S)
+        local minCz = math.floor((pz - range) / S)
+        local maxCz = math.floor((pz + range) / S)
+        for cx = minCx, maxCx do
+            for cz = minCz, maxCz do
+                local cellKey = (cx + 2048) * 4096 + (cz + 2048)
+                local bucket = grid[cellKey]
+                if bucket then
+                    for _, sIdx in ipairs(bucket) do
+                        local s = Match.samples[sIdx]
+                        local dx = s.pos.X - px
+                        local dz = s.pos.Z - pz
+                        if dx * dx + dz * dz <= rSq then
+                            table.insert(res, s)
+                        end
+                    end
+                end
+            end
+        end
+        return res
+    end
+    for _, s in ipairs(Match.samples or {}) do
+        local dx = s.pos.X - px
+        local dz = s.pos.Z - pz
+        if dx * dx + dz * dz <= rSq then
+            table.insert(res, s)
+        end
+    end
+    return res
 end
 
 function Match.countLanes()
@@ -36177,43 +36293,68 @@ function Match.waveReward(i)
 end
 
 function Match.progressAt(position)
-    local count, huge, lane = 0, math.huge, nil
     local flat = Utils.flat(position)
-    local grid = Match._sampleGrid
-    if grid then
-        local cx = math.floor(position.X / 12)
-        local cz = math.floor(position.Z / 12)
-        local found = false
+    local px, pz = flat.X, flat.Z
+    local bestProg, bestDistSq, bestLane = 0, math.huge, nil
+    local segs = Match.segments
+    if segs and #segs > 0 then
+        local grid = Match._segGrid
+        local S = 24
+        local cx = math.floor(px / S)
+        local cz = math.floor(pz / S)
+        local checked = {}
         for dx = -1, 1 do
             for dz = -1, 1 do
-                local bucket = grid[(cx + dx) .. "," .. (cz + dz)]
+                local bucket = grid and grid[(cx + dx) .. "," .. (cz + dz)]
                 if bucket then
-                    found = true
-                    for _, sIdx in ipairs(bucket) do
-                        local sample = Match.samples[sIdx]
-                        if sample then
-                            local dxp, dzp = sample.pos.X - flat.X, sample.pos.Z - flat.Z
-                            local magnitude = dxp * dxp + dzp * dzp
-                            if magnitude < huge then
-                                huge, count, lane = magnitude, sample.prog, sample.lane
+                    for _, segIdx in ipairs(bucket) do
+                        if not checked[segIdx] then
+                            checked[segIdx] = true
+                            local seg = segs[segIdx]
+                            local Ux, Uz, L2 = seg.Ux, seg.Uz, seg.L2
+                            local t = ((px - seg.A.X) * Ux + (pz - seg.A.Z) * Uz) / L2
+                            local tClamp = t < 0 and 0 or (t > 1 and 1 or t)
+                            local projX = seg.A.X + tClamp * Ux
+                            local projZ = seg.A.Z + tClamp * Uz
+                            local dxp, dzp = px - projX, pz - projZ
+                            local distSq = dxp * dxp + dzp * dzp
+                            if distSq < bestDistSq then
+                                bestDistSq = distSq
+                                bestProg = seg.progA + tClamp * (seg.progB - seg.progA)
+                                bestLane = seg.lane
                             end
                         end
                     end
                 end
             end
         end
-        if found and huge < math.huge then
-            return count, math.sqrt(huge), lane ~= nil and tostring(lane) or nil
+        if bestDistSq < math.huge then
+            return bestProg, math.sqrt(bestDistSq), bestLane ~= nil and tostring(bestLane) or nil
         end
+        for _, seg in ipairs(segs) do
+            local Ux, Uz, L2 = seg.Ux, seg.Uz, seg.L2
+            local t = ((px - seg.A.X) * Ux + (pz - seg.A.Z) * Uz) / L2
+            local tClamp = t < 0 and 0 or (t > 1 and 1 or t)
+            local projX = seg.A.X + tClamp * Ux
+            local projZ = seg.A.Z + tClamp * Uz
+            local dxp, dzp = px - projX, pz - projZ
+            local distSq = dxp * dxp + dzp * dzp
+            if distSq < bestDistSq then
+                bestDistSq = distSq
+                bestProg = seg.progA + tClamp * (seg.progB - seg.progA)
+                bestLane = seg.lane
+            end
+        end
+        return bestProg, bestDistSq < math.huge and math.sqrt(bestDistSq) or math.huge, bestLane ~= nil and tostring(bestLane) or nil
     end
-    for _, sample in ipairs(Match.samples) do
-        local dxp, dzp = sample.pos.X - flat.X, sample.pos.Z - flat.Z
+    for _, sample in ipairs(Match.samples or {}) do
+        local dxp, dzp = sample.pos.X - px, sample.pos.Z - pz
         local distSq = dxp * dxp + dzp * dzp
-        if distSq < huge then
-            huge, count, lane = distSq, sample.prog, sample.lane
+        if distSq < bestDistSq then
+            bestDistSq, bestProg, bestLane = distSq, sample.prog, sample.lane
         end
     end
-    return count, huge < math.huge and math.sqrt(huge) or math.huge, lane ~= nil and tostring(lane) or nil
+    return bestProg, bestDistSq < math.huge and math.sqrt(bestDistSq) or math.huge, bestLane ~= nil and tostring(bestLane) or nil
 end
 
 function Match.scan()
@@ -36684,8 +36825,16 @@ function Match.cover(valid, range, arg3, depth)
     local flat = Utils.flat(valid)
     local dens = arg3 and Brain.maps [Match.mapKey()] and Brain.maps [Match.mapKey()].dens
     local laneW = Match.laneW
-    for _, sample in ipairs(Match.samples) do
-        if ((sample.flat or Utils.flat(sample.pos)) - flat).Magnitude <= range then
+    local matched = Match.samplesInRange and Match.samplesInRange(flat, range) or Match.samples
+    for _, sample in ipairs(matched) do
+        local inRange = true
+        if matched == Match.samples then
+            local sFlat = sample.flat or Utils.flat(sample.pos)
+            local dx = sFlat.X - flat.X
+            local dz = sFlat.Z - flat.Z
+            inRange = (dx * dx + dz * dz <= range * range)
+        end
+        if inRange then
             local num = 1
             if dens then
                 num = 0.15 + 0.85 * (tonumber(dens [math.min(Simulator.BINS, math.floor(sample.prog * Simulator.BINS) + 1)]) or 0)
@@ -37642,24 +37791,29 @@ function Match.bestSpot(unit, isFarm, arg3)
             local count = 0
             local flat = (sample.flat or Utils.flat(sample.pos))
             for _, item in ipairs(list) do
-                if (flat - item.p).Magnitude <= item.r then
+                local dx = flat.X - item.p.X
+                local dz = flat.Z - item.p.Z
+                if dx * dx + dz * dz <= item.r * item.r then
                     count = count + 1
                 end
             end
             list2 [i] = count
         end
         local value, value2, value3
-        local count = 0
+        local r22Sq = range22 * range22
         for _, cand in ipairs(Match.cands) do
-            local valid = Match.valid(cand, data)
-            count = count + 1
-            if count % 40 == 0 then
+            Match.spotScan = (Match.spotScan or 0) + 1
+            if Match.spotScan % 100 == 0 then
                 task.wait()
             end
+            local valid = Match.valid(cand, data)
             if valid then
                 local flat, count, count2 = Utils.flat(valid), 0, 0
                 for i, sample in ipairs(Match.samples) do
-                    if ((sample.flat or Utils.flat(sample.pos)) - flat).Magnitude <= range22 then
+                    local sFlat = sample.flat or Utils.flat(sample.pos)
+                    local dx = sFlat.X - flat.X
+                    local dz = sFlat.Z - flat.Z
+                    if dx * dx + dz * dz <= r22Sq then
                         count2 = count2 + 1
                         if sample.prog >= 0.6 then
                             count = count + (sample.prog - 0.5) * (1 + list2 [i])
@@ -37681,18 +37835,22 @@ function Match.bestSpot(unit, isFarm, arg3)
     end
     if Match.style == "fast" and not isFarm and not arg3 and not allyBuff and not (depth and depth.leak) and not Units.isFarm(unit.id) then
         local range22 = range2 or range
+        local r22Sq = range22 * range22
         local value, value2, value3
-        local count = 0
         for _, cand in ipairs(Match.cands) do
-            local valid = Match.valid(cand, data)
-            count = count + 1
-            if count % 40 == 0 then
+            Match.spotScan = (Match.spotScan or 0) + 1
+            if Match.spotScan % 100 == 0 then
                 task.wait()
             end
+            local valid = Match.valid(cand, data)
             if valid then
                 local flat, count, count2 = Utils.flat(valid), 0, 0
-                for _, sample in ipairs(Match.samples) do
-                    if ((sample.flat or Utils.flat(sample.pos)) - flat).Magnitude <= range22 then
+                local inSamples = Match.samplesInRange and Match.samplesInRange(flat, range22) or Match.samples
+                for _, sample in ipairs(inSamples) do
+                    local sFlat = sample.flat or Utils.flat(sample.pos)
+                    local dx = sFlat.X - flat.X
+                    local dz = sFlat.Z - flat.Z
+                    if dx * dx + dz * dz <= r22Sq then
                         count2 = count2 + 1
                         if sample.prog <= Match.FAST_ROAD then
                             count = count + 1.5 - sample.prog
@@ -37748,7 +37906,6 @@ function Match.bestSpot(unit, isFarm, arg3)
         end
     end
     local value3, value4, cover
-    local count2 = 0
     local dens = Brain.maps [Match.mapKey()] and Brain.maps [Match.mapKey()].dens
     -- Auto Buff: copies of one buffer stand as a group. A spot counts as linked when the new copy
     -- reaches every copy already down and they reach it.
@@ -37762,6 +37919,29 @@ function Match.bestSpot(unit, isFarm, arg3)
             end
         end
     end
+    if mates and # mates > 0 then
+        -- Spots around the group, so a spot that reaches every copy is there to be found.
+        local center, reach = Vector3.new(0, 0, 0), range0
+        for _, mate in ipairs(mates) do
+            center = center + mate.pos
+            reach = math.min(reach, mate.range)
+        end
+        center = center / # mates
+        if cands == Match.cands then
+            cands = table.clone(Match.cands)
+        end
+        table.insert(cands, center)
+        for _, part in ipairs({
+            0.2,
+            0.4,
+            0.6
+        }) do
+            for i = 0, 11 do
+                local angle = i * math.pi / 6
+                table.insert(cands, center + Vector3.new(math.cos(angle), 0, math.sin(angle)) * reach * part)
+            end
+        end
+    end
     local groupSize = {
     }
     for _, fieldBuffer in ipairs(fieldBuffers) do
@@ -37769,11 +37949,11 @@ function Match.bestSpot(unit, isFarm, arg3)
     end
     local chainOn = Units.chainOn()
     for _, cand in ipairs(cands) do
-        local valid = Match.valid(cand, data)
-        count2 = count2 + 1
-        if count2 % 40 == 0 then
+        Match.spotScan = (Match.spotScan or 0) + 1
+        if Match.spotScan % 100 == 0 then
             task.wait()
         end
+        local valid = Match.valid(cand, data)
         if valid then
             local cover2
             if isFarm then
@@ -37816,15 +37996,6 @@ function Match.bestSpot(unit, isFarm, arg3)
                     end
                 end
                 cover2 = count2 / count * 100 + Match.cover(valid, range, true) * 0.05
-                if mates and # mates > 0 then
-                    local linked = 0
-                    for _, mate in ipairs(mates) do
-                        if (Utils.flat(mate.pos) - Utils.flat(valid)).Magnitude <= math.min(range0, mate.range) then
-                            linked = linked + 1
-                        end
-                    end
-                    cover2 = cover2 * (0.25 + 0.75 * linked / # mates) + 200 * linked / # mates
-                end
             else
                 local cover = Match.cover(valid, range, true, depth)
                 if range2 then
@@ -37850,6 +38021,16 @@ function Match.bestSpot(unit, isFarm, arg3)
                 end
                 cover2 = cover2 * (1 + count)
             end
+            if mates and # mates > 0 then
+                -- A copy that reaches every copy already down (and is reached by them) always wins.
+                local linked = 0
+                for _, mate in ipairs(mates) do
+                    if (Utils.flat(mate.pos) - Utils.flat(valid)).Magnitude <= math.min(range0, mate.range) then
+                        linked = linked + 1
+                    end
+                end
+                cover2 = cover2 + (linked == # mates and 1e5 or 0) + 1000 * linked / # mates
+            end
             if mergeSpot and (Utils.flat(mergeSpot) - Utils.flat(valid)).Magnitude <= range4 then
                 cover2 = cover2 + 1e6
             end
@@ -37867,7 +38048,7 @@ function Match.bestSpot(unit, isFarm, arg3)
             end
         end
     end
-    if allyBuff and # list > 0 and value3 then
+    if allyBuff and # list > 0 and value3 and not (mates and # mates > 0) then
         local flag = false
         for _, item in ipairs(list) do
             if (Utils.flat(item.pos) - Utils.flat(value3)).Magnitude <= range then
@@ -37927,27 +38108,55 @@ function Match.lookAt(bestSpot, unitEntry)
             end
             if aoeKind then
                 local range = Units.range(unitEntry.u, rows.max or 0) * ((Match.info and tonumber(Match.info.rangeScale)) or 1)
+                local rangeSq = range * range
                 local inRange = {}
-                for _, s in ipairs(Match.samples) do
-                    local d = Utils.flat(s.pos) - flatOrigin
-                    local dist = d.Magnitude
-                    if dist > 0.1 and dist <= range then
-                        table.insert(inRange, { dir = d / dist, dist = dist })
+                local sumVx, sumVz, sumW = 0, 0, 0
+                local matchedSamples = Match.samplesInRange and Match.samplesInRange(flatOrigin, range) or Match.samples
+                for _, s in ipairs(matchedSamples) do
+                    local sFlat = s.flat or Utils.flat(s.pos)
+                    local vx = sFlat.X - flatOrigin.X
+                    local vz = sFlat.Z - flatOrigin.Z
+                    local distSq = vx * vx + vz * vz
+                    if distSq > 0.01 and distSq <= rangeSq then
+                        local w = 1 + (s.prog or 0)
+                        sumVx = sumVx + vx * w
+                        sumVz = sumVz + vz * w
+                        sumW = sumW + w
+                        table.insert(inRange, { vx = vx, vz = vz, distSq = distSq, prog = s.prog or 0 })
                     end
                 end
                 if #inRange > 0 then
+                    local candDirs = {}
+                    local sumLenSq = sumVx * sumVx + sumVz * sumVz
+                    if sumLenSq > 0.001 then
+                        local invLen = 1 / math.sqrt(sumLenSq)
+                        table.insert(candDirs, Vector3.new(sumVx * invLen, 0, sumVz * invLen))
+                    end
+                    for _, pt in ipairs(inRange) do
+                        local lenSq = pt.distSq
+                        if lenSq > 0.001 then
+                            local invLen = 1 / math.sqrt(lenSq)
+                            table.insert(candDirs, Vector3.new(pt.vx * invLen, 0, pt.vz * invLen))
+                        end
+                    end
+                    local coneCosSq = coneCos * coneCos
                     local bestDir, bestHits = nil, -1
-                    for step = 0, 23 do
-                        local ang = step * math.pi / 12
-                        local candDir = Vector3.new(math.cos(ang), 0, math.sin(ang))
+                    for _, candDir in ipairs(candDirs) do
+                        local dx, dz = candDir.X, candDir.Z
                         local hits = 0
                         for _, pt in ipairs(inRange) do
-                            local dot = candDir:Dot(pt.dir)
-                            if aoeKind == "cone" then
-                                if dot >= coneCos then hits = hits + 1 end
-                            else
-                                if dot > 0 and pt.dist * math.sqrt(math.max(0, 1 - dot * dot)) <= lineHalf then
-                                    hits = hits + 1
+                            local dot = pt.vx * dx + pt.vz * dz
+                            if dot > 0 and dot <= range then
+                                if aoeKind == "cone" then
+                                    if dot * dot >= coneCosSq * pt.distSq then
+                                        hits = hits + (1 + pt.prog)
+                                    end
+                                else
+                                    local cross = pt.vx * dz - pt.vz * dx
+                                    if cross < 0 then cross = -cross end
+                                    if cross <= lineHalf then
+                                        hits = hits + (1 + pt.prog)
+                                    end
                                 end
                             end
                         end
@@ -37964,9 +38173,12 @@ function Match.lookAt(bestSpot, unitEntry)
     end
     local huge, pos = math.huge, nil
     for _, sample in ipairs(Match.samples) do
-        local magnitude = ((sample.flat or Utils.flat(sample.pos)) - flatOrigin).Magnitude
-        if magnitude < huge then
-            huge, pos = magnitude, sample.pos
+        local sFlat = sample.flat or Utils.flat(sample.pos)
+        local dx = sFlat.X - flatOrigin.X
+        local dz = sFlat.Z - flatOrigin.Z
+        local distSq = dx * dx + dz * dz
+        if distSq < huge then
+            huge, pos = distSq, sample.pos
         end
     end
     local flat = pos and Utils.flat(pos - bestSpot) or Vector3.new(0, 0, - 1)
@@ -39715,69 +39927,7 @@ function Match.fusionReady(source)
     return true
 end
 
-function Match.relayBuffChoice(now, clock)
-    if not Config.community or #Match.enemies == 0 then return nil end
-    local support, fighters = {}, {}
-    for _, tower in ipairs(Match.mine) do
-        local stats = tower._stats
-        local id = stats.id.Value
-        local buff = Units.allyBuff(id)
-        local position = Utils.flat(tower:GetPivot().Position)
-        if buff and buff.chain then
-            local active = stats:FindFirstChild("active_attack")
-            local last = stats:FindFirstChild("last_active_cast")
-            local activeAttackCooldown = stats:FindFirstChild("active_attack_cooldown")
-            if active and active.Value == buff.attack and last and activeAttackCooldown then
-                table.insert(support, {
-                    model = tower, stats = stats, buff = buff, position = position,
-                    ready = clock - last.Value >= activeAttackCooldown.Value,
-                    range = stats.range.Value,
-                })
-            end
-        elseif not buff and not Units.isFarm(id) then
-            local _, base = Units.types(id)
-            table.insert(fighters, { stats = stats, position = position, base = base, dps = Match.liveDps(tower, id) })
-        end
-    end
-    Match.relayNext = Match.relayNext or {}
-    local best, bestScore
-    for _, caster in ipairs(support) do
-        local buff = caster.buff
-        if caster.ready and now >= (Match.relayNext[buff.attack] or 0) then
-            local delivery, reachable, strongest = 0, 0, 0
-            for _, fighter in ipairs(fighters) do
-                local base = buff.types[fighter.base]
-                if base and (fighter.position - caster.position).Magnitude <= caster.range then
-                    local attribute = "_dmg_buff_" .. fighter.base
-                    local strength = tonumber(caster.stats:GetAttribute(attribute)) or 0
-                    local target = math.min(1, (1 + base) * (1 + strength) - 1)
-                    local old = tonumber(fighter.stats:GetAttribute(attribute)) or 0
-                    reachable += fighter.dps
-                    strongest = math.max(strongest, target)
-                    if old <= 0.02 then delivery += fighter.dps * target end
-                end
-            end
-            local relay = 0
-            if reachable > 0 then
-                for _, recipient in ipairs(support) do
-                    if recipient ~= caster and recipient.buff.attack == buff.attack and (recipient.position - caster.position).Magnitude <= caster.range then
-                        for base in pairs(buff.types) do
-                            local attribute = "_dmg_buff_" .. base
-                            local old = tonumber(recipient.stats:GetAttribute(attribute)) or 0
-                            if old <= 0.02 and strongest > 0 then
-                                relay += reachable * strongest * 0.16
-                                break
-                            end
-                        end
-                    end
-                end
-            end
-            local score = delivery + relay
-            if score > (bestScore or 0) then best, bestScore = caster, score end
-        end
-    end
-    return best and best.model
-end
+-- [Removed in v2.5: Match.relayBuffChoice was obsolete dead code superceded by Auto Buff Match.autoBuffPick]
 
 -- Plain data in, plain data out, so the stand can run it: which copies reach each other and which
 -- attackers stand in range. copies: { position, range }; fighters: { position, base, dps }.
@@ -39822,6 +39972,45 @@ function Match.buffReach(copies, fighters, types)
         end
     end
     return out
+end
+
+-- The first set of `need` copies that all stand within each other's range (each pair within the shorter of
+-- their two ranges). Also returns the most copies that do reach each other, for the status.
+function Match.buffSquad(copies, need)
+    local function pair(a, b)
+        local x, z = a.position.X - b.position.X, a.position.Z - b.position.Z
+        local reach = math.min(a.range, b.range)
+        return x * x + z * z <= reach * reach
+    end
+    local chosen, most, found = {
+    }, 0, nil
+    local function grow(start)
+        most = math.max(most, # chosen)
+        if # chosen == need then
+            found = table.clone(chosen)
+            return
+        end
+        for index = start, # copies do
+            local cand = copies [index]
+            local fits = true
+            for _, member in ipairs(chosen) do
+                if not pair(member, cand) then
+                    fits = false
+                    break
+                end
+            end
+            if fits then
+                table.insert(chosen, cand)
+                grow(index + 1)
+                table.remove(chosen)
+                if found then
+                    return
+                end
+            end
+        end
+    end
+    grow(1)
+    return found, most
 end
 
 function Match.autoBuffGroups(clock)
@@ -39917,6 +40106,148 @@ end
 
 -- Which buffer casts now. Timing comes from our own casts; the buff value the game shows on the units
 -- confirms the level and corrects how long a buff really lasts.
+-- ===== Infinite buff: start rule, trace and test =====
+-- The infinite buff (Lenio's opening) only works on a full squad: Units.BUFF_SQUAD copies that all stand
+-- within each other's range, so each cast lands on a copy that is already buffed. No copy casts before the
+-- squad is down; once it runs, it never pauses (between waves too), or the chain would break.
+function Match.buffTraceFor(group, need)
+    Match.buffTrace = Match.buffTrace or {
+    }
+    local trace = Match.buffTrace [group.attack]
+    if not trace then
+        trace = {
+            attack = group.attack,
+            id = group.id,
+            need = need,
+            casts = {
+            },
+            events = {
+            },
+            total = 0,
+            at100 = 0,
+            any = 0,
+            drops = 0,
+            peak = 0
+        }
+        Match.buffTrace [group.attack] = trace
+    end
+    return trace
+end
+
+function Match.buffTraceEvent(trace, text, now)
+    table.insert(trace.events, (trace.startedAt and now and string.format("%ds: ", math.floor(now - trace.startedAt)) or "") .. text)
+    while # trace.events > 6 do
+        table.remove(trace.events, 1)
+    end
+end
+
+-- Once the rotation runs: how long the buff is up, how long at 100%, how often it falls to nothing.
+function Match.buffTraceSample(trace, level, now)
+    if not trace.startedAt then
+        return
+    end
+    local dt = math.min(2, now - (trace.sampledAt or now))
+    trace.sampledAt = now
+    if dt <= 0 then
+        return
+    end
+    trace.total = trace.total + dt
+    -- The share at +100% counts from the first time it gets there: the climb to it is part of the opening.
+    if level >= 0.99 and not trace.fullAt then
+        trace.fullAt = trace.total
+    end
+    if trace.fullAt then
+        trace.fullTime = (trace.fullTime or 0) + dt
+        if level >= 0.99 then
+            trace.at100 = trace.at100 + dt
+        end
+    end
+    if level > 0.02 then
+        trace.any = trace.any + dt
+    end
+    if (trace.lastLevel or 0) > 0.02 and level <= 0.02 then
+        trace.drops = trace.drops + 1
+    end
+    trace.lastLevel = level
+    trace.peak = math.max(trace.peak, level)
+end
+
+function Match.buffVerdict(trace)
+    if not trace.startedAt then
+        return "NOT STARTED: " .. tostring(trace.why or "waiting for the copies")
+    end
+    local cd, dur = tonumber(trace.cd) or 0, tonumber(trace.dur) or 30
+    local loop = 2 * dur
+    local cdNote = cd > loop + 0.5 and string.format(" Each copy's cooldown is %ds, but in Lenio's 4-copy order a copy has to cast again after %ds: an SPA curse (shorter cooldown) fixes that.", math.ceil(cd), math.floor(loop)) or ""
+    local needed = math.max(cd, loop) + dur
+    if trace.total < needed then
+        return string.format("RUNNING: %ds of the %ds a verdict needs.", math.floor(trace.total), math.ceil(needed)) .. cdNote
+    end
+    local share = trace.at100 / math.max(1, trace.fullTime or 0)
+    if not trace.confirmed then
+        return "CAN'T CONFIRM: the game shows no buff value on your units here, so only the timings are known." .. cdNote
+    end
+    if trace.fullAt and share >= 0.9 and trace.drops == 0 then
+        return string.format("WORKS: +100%% reached after %ds and held %d%% of the time since; the buff never fell to nothing.", math.floor(trace.fullAt), math.floor(share * 100 + 0.5))
+    end
+    if trace.peak >= 0.99 then
+        return string.format("PARTLY: it reaches +100%% but holds it only %d%% of the time since (%d drop%s to nothing).", math.floor(share * 100 + 0.5), trace.drops, trace.drops == 1 and "" or "s")
+            .. (cdNote ~= "" and cdNote or " Look at the casts below for failed or late ones.")
+    end
+    return string.format("NOT WORKING: the highest buff seen was +%d%%.", math.floor(trace.peak * 100 + 0.5))
+        .. (cdNote ~= "" and cdNote or " The copies don't buff each other: all 4 must stand within each other's range, and each cast must land on a copy that is already buffed.")
+end
+
+function Match.buffTestText()
+    if App.where ~= "match" then
+        return "Not in a match. Turn the test on and start a match; the last result stays on the right."
+    end
+    if not Units.chainOn() then
+        return "Auto Buff or Use abilities is off: turn both on in Battle → Controls."
+    end
+    local blocks = {
+    }
+    for _, trace in pairs(Match.buffTrace or {
+    }) do
+        local casts = {
+        }
+        for index = math.max(1, # trace.casts - 7), # trace.casts do
+            local cast = trace.casts [index]
+            table.insert(casts, string.format("#%d at %ds %s", cast.copy, math.floor(cast.t), cast.failed and "FAILED" or (string.format("+%d%%", math.floor(cast.expect * 100 + 0.5)) .. (cast.seen and string.format(" (game: +%d%%)", math.floor(cast.seen * 100 + 0.5)) or ""))))
+        end
+        local lines = {
+            string.format("%s · %s", Units.name(trace.id), tostring(trace.squadText or "")),
+            Match.buffVerdict(trace)
+        }
+        if trace.cd then
+            local dur = trace.dur or 30
+            local lenio = trace.cd <= 2 * dur + 0.5
+            table.insert(lines, string.format("Cooldown %ds · buff %ds · %s", math.ceil(trace.cd), math.floor(dur),
+                lenio and string.format("Lenio's order fits (cooldown ≤ %ds) ✓", math.floor(2 * dur))
+                or trace.cd <= 4 * (dur - math.min(Units.BUFF_LEAD, dur / 2))
+                and string.format("too long for Lenio's order (needs ≤ %ds): copies chain one at a time, each %ds before the last buff ends", math.floor(2 * dur), Units.BUFF_LEAD)
+                or string.format("too long for any loop of 4 ✗ (needs ≤ %ds): an SPA curse fixes that", math.floor(2 * dur))))
+        end
+        if trace.startedAt then
+            table.insert(lines, string.format("%ds since start · %s · some buff %ds · fell to nothing %d time%s · highest +%d%%", math.floor(trace.total),
+                trace.fullAt and string.format("+100%% first at %ds, then held %ds of %ds", math.floor(trace.fullAt), math.floor(trace.at100), math.floor(trace.fullTime or 0)) or "+100% not reached yet",
+                math.floor(trace.any), trace.drops, trace.drops == 1 and "" or "s", math.floor(trace.peak * 100 + 0.5)))
+        end
+        table.insert(lines, # casts > 0 and ("Casts: " .. table.concat(casts, " · ")) or "Casts: none yet")
+        if not trace.startedAt or trace.why then
+            table.insert(lines, "Now: " .. tostring(trace.why or "-"))
+        end
+        if # trace.events > 0 then
+            table.insert(lines, "Events: " .. table.concat(trace.events, " · "))
+        end
+        table.insert(blocks, table.concat(lines, "\n"))
+    end
+    if # blocks == 0 then
+        return "No Commander, Windsong or Leafy on the field yet. Place 4 copies of one of them next to each other (or let the farm place them)."
+    end
+    return table.concat(blocks, "\n\n")
+end
+
 function Match.autoBuffPick(now, clock)
     if not Units.chainOn() then
         Match.buffText = nil
@@ -39924,6 +40255,7 @@ function Match.autoBuffPick(now, clock)
     end
     Match.buffState = Match.buffState or {
     }
+    local test = Config.buffTest == true
     local pick
     local lines = {
     }
@@ -39938,12 +40270,15 @@ function Match.autoBuffPick(now, clock)
             }
             Match.buffState [group.attack] = state
         end
+        local need = group.buff.squad or Units.BUFF_COPIES
+        local trace = Match.buffTraceFor(group, need)
         local learned = Brain.stack [group.attack]
         local dataDur = tonumber(group.buff.time) or 30
         local dur = learned and tonumber(learned.dur) or dataDur
         local cap = learned and tonumber(learned.cap) or 1
         if group.seen > 0.02 then
             state.confirmed = true
+            trace.confirmed = true
         end
         -- A drop the game shows: the cast that gave that level has ended. Its real length replaces the estimate.
         if state.confirmed and state.seen and group.seen < state.seen - 0.02 then
@@ -39982,15 +40317,46 @@ function Match.autoBuffPick(now, clock)
                 top = math.max(top, cast.level or 0)
             end
         end
-        local copies = # group.copies
-        local plan = Units.buffPlan(copies, group.cd > 0 and group.cd or group.buff.cd, dur, group.base, cap, group.buff.follow)
-        local ready, best, soon = 0, nil, nil
+        -- The squad: the copies the rotation runs on. A member that leaves the field ends the rotation.
+        local present = {
+        }
         for _, copy in ipairs(group.copies) do
+            present [copy.model] = copy
+        end
+        local squad
+        if state.squad then
+            squad = {
+            }
+            for _, model in ipairs(state.squad) do
+                if present [model] then
+                    table.insert(squad, present [model])
+                end
+            end
+            if # squad < need then
+                App.log(1, "BUFF", string.format("%s: a copy of the rotation left the field, so it waits for %d copies within each other's range again", Units.name(group.id), need))
+                Match.buffTraceEvent(trace, "a rotation copy left the field: waiting for a full squad again", now)
+                state.squad, squad = nil, nil
+                state.casts, live, top = {
+                }, {
+                }, 0
+            end
+        end
+        local found, most = nil, 0
+        if not squad then
+            found, most = Match.buffSquad(group.copies, need)
+        end
+        local members = squad or found or {
+        }
+        local cd = group.cd > 0 and group.cd or group.buff.cd
+        trace.cd, trace.dur = cd, dur
+        local plan = Units.buffPlan(need, cd, dur, group.base, cap, group.buff.follow)
+        local ready, best, soon = 0, nil, nil
+        for _, copy in ipairs(members) do
             -- Without a readable buff value the level a copy carries is the one our timing says is up.
-            copy.carried = state.confirmed and copy.level or (copy.linked > 0 and top or 0)
+            copy.carried = state.confirmed and copy.level or top
             if copy.ready then
                 ready = ready + 1
-                if not best or copy.carried > best.carried + 0.01 or (math.abs(copy.carried - best.carried) <= 0.01 and copy.linked > best.linked) then
+                if not best or copy.carried > best.carried + 0.01 then
                     best = copy
                 end
             else
@@ -39998,29 +40364,68 @@ function Match.autoBuffPick(now, clock)
             end
         end
         local go, why, wait = false, nil, nil
-        if group.reach.covered <= 0 then
-            why = "no " .. tostring(group.kind) .. " attacker stands in range of a copy yet"
-        elseif # Match.enemies == 0 then
-            why = "no enemies on the field"
-        elseif not best then
-            why, wait = "every copy is on cooldown", soon
+        if not squad then
+            if not found then
+                if # group.copies < need then
+                    why = string.format("%d of %d copies placed: the infinite buff starts once %d stand within each other's range", # group.copies, need, need)
+                else
+                    why = string.format("only %d of the %d copies reach each other: all %d must stand within each other's range", most, # group.copies, need)
+                end
+            elseif ready < need then
+                why, wait = string.format("%d of %d squad copies ready: the rotation starts with all of them off cooldown", ready, need), soon
+            elseif not test and group.reach.covered <= 0 then
+                why = "no " .. tostring(group.kind) .. " attacker stands in range of the copies yet"
+            elseif not test and # Match.enemies == 0 then
+                why = "no enemies on the field: the rotation starts with the next wave"
+            else
+                state.squad = {
+                }
+                for _, copy in ipairs(found) do
+                    table.insert(state.squad, copy.model)
+                end
+                state.casts, state.last, live, top = {
+                }, - 99, {
+                }, 0
+                squad = found
+                trace.startedAt, trace.sampledAt = now, now
+                trace.total, trace.at100, trace.any, trace.drops, trace.peak, trace.lastLevel = 0, 0, 0, 0, 0, 0
+                trace.fullAt, trace.fullTime = nil, 0
+                trace.casts = {
+                }
+                Match.buffTraceEvent(trace, string.format("%d copies within each other's range: the rotation starts", need), now)
+                App.log(1, "BUFF", string.format("%s: %d copies stand within each other's range, the infinite buff starts%s", Units.name(group.id), need, test and " (test: no enemies or attackers needed)" or ""))
+                go, why = true, "starts the infinite buff with copy #1"
+            end
         else
-            go, why, wait = Units.buffDecide(plan, live, now - state.last, Match.buffDanger())
+            if not best then
+                why, wait = "every copy is on cooldown", soon
+            else
+                -- Once it runs it never waits for enemies or a boss: a pause would break the chain.
+                go, why, wait = Units.buffDecide(plan, live, now - state.last, true)
+            end
         end
-        if go and not pick then
+        if go and not pick and best then
             pick = best.model
+            local index = 1
+            for position, model in ipairs(state.squad or {
+            }) do
+                if model == best.model then
+                    index = position
+                end
+            end
             Match.buffPending = {
                 attack = group.attack,
                 level = math.min(cap, (1 + group.base) * (1 + math.max(0, best.carried)) - 1),
-                why = why
+                why = why,
+                copy = index
             }
         end
-        local linked = 0
-        for _, copy in ipairs(group.copies) do
-            if copy.linked == copies - 1 then
-                linked = linked + 1
-            end
-        end
+        local level = state.confirmed and group.seen or top
+        Match.buffTraceSample(trace, level, now)
+        trace.why = not go and (why .. (wait and string.format(" (%ds)", math.ceil(wait)) or "")) or nil
+        trace.squadText = squad and string.format("%d copies within each other's range ✓ (rotation running)", need)
+            or found and string.format("%d copies within each other's range ✓", need)
+            or string.format("%d placed, %d reach each other, %d needed ✗", # group.copies, most, need)
         local effect
         if state.confirmed then
             effect = string.format("effect now +%d%% (seen in the match)", math.floor(group.seen * 100 + 0.5))
@@ -40030,11 +40435,18 @@ function Match.autoBuffPick(now, clock)
             effect = "no buff cast yet"
         end
         local cover = group.reach.total > 0 and string.format("%d%% of %s damage in range", math.floor(group.reach.covered / group.reach.total * 100 + 0.5), tostring(group.kind)) or ("no " .. tostring(group.kind) .. " attacker placed")
-        table.insert(lines, string.format("%s ×%d · %d ready · %s · %s%s · %s%s", Units.name(group.id), copies, ready, effect, cover,
-            (copies > 1 and linked < copies) and string.format(" · only %d of %d copies reach each other", linked, copies) or "",
+        table.insert(lines, string.format("%s ×%d · %s · %d ready · %s · %s · %s%s", Units.name(group.id), # group.copies, trace.squadText, ready, effect, cover,
             go and ("casting: " .. tostring(why)) or ("waiting: " .. tostring(why)), (not go and wait) and string.format(" (%ds)", math.ceil(wait)) or ""))
     end
     Match.buffText = # lines > 0 and table.concat(lines, "\n") or "no Commander, Windsong or Leafy on the field"
+    if test and Utils.now() - (Match.buffTestSavedAt or 0) >= 10 and Match.buffTrace and next(Match.buffTrace) then
+        Match.buffTestSavedAt = Utils.now()
+        Brain.buffTest = {
+            at = os.time(),
+            text = Match.buffTestText()
+        }
+        App.saveSoon()
+    end
     return pick
 end
 
@@ -40052,6 +40464,19 @@ function Match.autoBuffCast(unit, stats, attack, types)
     }
     table.insert(state.casts, cast)
     state.last, state.done = cast.at, state.done + 1
+    local trace = Match.buffTrace and Match.buffTrace [attack]
+    local entry
+    if trace and trace.startedAt then
+        entry = {
+            t = cast.at - trace.startedAt,
+            copy = pending and pending.attack == attack and pending.copy or 0,
+            expect = cast.level
+        }
+        table.insert(trace.casts, entry)
+        while # trace.casts > 40 do
+            table.remove(trace.casts, 1)
+        end
+    end
     task.delay(2, function()
         if not App.alive then
             return
@@ -40064,6 +40489,10 @@ function Match.autoBuffCast(unit, stats, attack, types)
                 table.remove(state.casts, index)
             end
             state.last = - 99
+            if entry then
+                entry.failed = true
+                Match.buffTraceEvent(trace, "a cast didn't go through", Utils.now())
+            end
             App.log(2, "BUFF", Units.name(stats.id.Value) .. ": the cast did not go through, the rotation is recalculated")
             return
         end
@@ -40071,14 +40500,18 @@ function Match.autoBuffCast(unit, stats, attack, types)
         if seen > 0.02 then
             state.confirmed = true
             cast.level = seen
+            if entry then
+                entry.seen = seen
+            end
         end
     end)
 end
 
 function Match.actives()
-    if not Config.actives or Match.activeBusy then
+    if not Config.actives then
         return
     end
+    Match.unitBusy = Match.unitBusy or {}
     local now = tick()
     local now2 = Utils.now()
     local relayCaster = Match.autoBuffPick(now2, now)
@@ -40174,8 +40607,22 @@ function Match.actives()
                     end
                 else
                     local count, flag, nearBase, inRangeHp = 0, false, false, 0
+                    local flatPos = Utils.flat(position)
+                    local rSq = rangeValue * rangeValue
                     for _, enemy in ipairs(Match.enemies) do
-                        if (Utils.flat(enemy.pos) - Utils.flat(position)).Magnitude <= rangeValue then
+                        local enemyFlat = Utils.flat(enemy.pos)
+                        local dx = enemyFlat.X - flatPos.X
+                        local dz = enemyFlat.Z - flatPos.Z
+                        local distSq = dx * dx + dz * dz
+                        local dist = math.sqrt(distSq)
+                        local speed = enemy.speed or (enemy.v and enemy.v * (Match.roadLength or 500)) or 8
+                        local castLead = (attackInfo.castDelay or 0.25) + dist / math.max(10, attackInfo.projSpeed or 100)
+                        local futPos = enemy.pos + (enemy.dir or Vector3.new(0, 0, 0)) * (speed * castLead)
+                        local futFlat = Utils.flat(futPos)
+                        local fdx = futFlat.X - flatPos.X
+                        local fdz = futFlat.Z - flatPos.Z
+                        local futDistSq = fdx * fdx + fdz * fdz
+                        if distSq <= rSq or futDistSq <= rSq then
                             count = count + 1
                             inRangeHp = inRangeHp + (enemy.hp or 0)
                             if enemy.boss then flag = true end
@@ -40201,15 +40648,27 @@ function Match.actives()
                         fusionReady, str = true, string.format("held %ds for a crowd, firing on %d", math.floor(now22), count)
                     end
                 end
-                if fusionReady then
-                    Match.activeBusy = true
+                if fusionReady and isRelay and Match.buffBusy then
+                    -- One rotation cast at a time: the next copy is picked once this one is recorded.
+                    fusionReady = false
+                end
+                if fusionReady and not Match.unitBusy[unit] then
+                    Match.unitBusy[unit] = true
+                    local relayPending = isRelay and Match.buffPending or nil
+                    if isRelay then
+                        Match.buffBusy = true
+                    end
                     if Units.FUSION.attacks[stats.id.Value] == activeAttack.Value then
                         Match.fusionRetryAt = Utils.now() + 5
                     end
                     Match.readySince [unit] = nil
                     task.spawn(function()
                         local ok = App.request("active", "use_active_attack", unit)
-                        Match.activeBusy = false
+                        Match.unitBusy[unit] = nil
+                        if isRelay then
+                            Match.buffBusy = nil
+                            Match.buffPending = relayPending
+                        end
                         if ok then
                             if rotInterval then
                                 Match.buffNext = Match.buffNext or {}
@@ -44736,7 +45195,7 @@ GUI.NAV_SCHEMA = {
         { "Fusion", "flame" }, { "Study", "microscope" },
     } },
     { Name = "Battle", Icon = "swords", Pages = {
-        { "Controls", "crosshair" }, { "Planner", "brain" }, { "Economy", "coins" },
+        { "Controls", "crosshair" }, { "Planner", "brain" }, { "Economy", "coins" }, { "Testing", "flask-conical" },
     } },
     { Name = "Activity", Icon = "scroll-text", Pages = {
         { "Log", "scroll-text" }, { "Spending", "wallet" },
@@ -44818,6 +45277,10 @@ GUI.LAYOUT = {
         ["Simulator and teams"] = { "Battle", "Planner", "Team planning", "Right" },
         Plan = { "Battle", "Planner", "Plan", "Left" },
         ["Advanced: farm or damage"] = { "Battle", "Economy", "Farm income", "Left" },
+    },
+    ["Buff Test"] = {
+        Overview = { "Battle", "Testing", "Infinite buff test", "Left" },
+        ["Last result"] = { "Battle", "Testing", "Last result", "Right" },
     },
     Activity = {
         Overview = { "Activity", "Log", "Live log", "Left" },
@@ -44942,6 +45405,7 @@ GUI.PAGE_HELP = {
     Activity = "",
     ["Quick Start"] = "",
     Routines = "",
+    ["Buff Test"] = "",
     Performance = "",
     Settings = "",
 }
@@ -45257,26 +45721,7 @@ function GUI.planView(col)
     return data
 end
 
-function GUI.fusionCompareRows(result, err)
-    if not result then
-        return { ["Result"] = tostring(err or "No comparison yet."), ["Current team"] = "", ["Best regular lineup"] = "", ["Fusion lineup"] = "" }
-    end
-    local function wave(side) return side and ("wave " .. tostring(side.wave or 0)) or "—" end
-    local function block(side)
-        if not side then return "" end
-        return Simulator.sideText(side, result.total, result.endless) .. "\n" .. tostring(side.names) .. (side.why and ("\n" .. side.why) or "")
-    end
-    local fusionCell = result.fusion and block(result.fusion) or ""
-    local status = Simulator.STATUS[result.fusionStatus] or tostring(result.fusionStatus)
-    fusionCell = (fusionCell ~= "" and (fusionCell .. "\n") or "") .. status .. " · " .. tostring(result.fusionNote)
-    return {
-        ["Result"] = string.format("%s · current %s  |  best regular %s  |  Fusion %s%s", tostring(result.label), wave(result.current), wave(result.regular),
-            result.fusion and wave(result.fusion) or "not simulated", (result.fusion and result.fusion.fusionWave) and (" (fused at wave " .. result.fusion.fusionWave .. ")") or ""),
-        ["Current team"] = block(result.current),
-        ["Best regular lineup"] = block(result.regular),
-        ["Fusion lineup"] = fusionCell,
-    }
-end
+-- [Removed in v2.5: GUI.fusionCompareRows uncalled dead helper]
 
 -- Home → Start here: is each part on, and the one thing to do next.
 GUI.START_ROWS = { "1 · Farm", "2 · Modes", "3 · Battle", "4 · Planner" }
@@ -47896,6 +48341,19 @@ function GUI.build()
         App.saveNow()
         helper6("Battle", "learning reset", "success")
     end)
+    do
+        local tab = window:Tab("🧪", "Buff Test")
+        helper7(tab, "1. Auto Buff and Use abilities on (Battle → Controls). 2. Turn the test on and start a match. 3. Put 4 Commanders or 4 Windsongs (or Leafys) next to each other, or let the farm place them. 4. Once all 4 reach each other the rotation starts, even with no enemies. 5. Read the verdict below.")
+        helper2(tab, "Infinite Buff Test", "In a match: the rotation starts as soon as 4 copies stand within each other's range, even with no enemies or attackers near, and every cast, the buff level the game shows and how long +100% holds are recorded below", "buffTest")
+        live.buffTest = tab:Paragraph(Match.buffTestText())
+        tab:Section("Last result")
+        live.buffTestLast = tab:Paragraph("…")
+        tab:Button("🧹", "Clear Test Result", "Forgets the last result", function()
+            Brain.buffTest = nil
+            App.saveSoon()
+            helper6("Buff test", "result cleared", "default")
+        end)
+    end
     tab = window:Tab("📜", "Activity")
     helper7(tab, "What it has been doing, and where your gold, gems and coins went.")
     tab:Section("What each part is doing")
@@ -48470,9 +48928,7 @@ function GUI.update()
             pcall(GUI.plan.Set, res)
         end
     end
-    if GUI.fusionCompare and GUI.fusionRunning and Simulator.progress then
-        pcall(GUI.fusionCompare.Set, "Result", string.format("Simulating… %d%% · %s", math.floor((Simulator.progress.frac or 0) * 100 + 0.5), tostring(Simulator.progress.text)))
-    end
+    -- [Cleaned up dead GUI.fusionCompare check]
     if GUI.sim then
         local value = Modes.lastScored and Modes.lastScored [1]
         local simRe = value and Brain.simRes [value.key]
@@ -48697,9 +49153,7 @@ function GUI.update()
     if live.lb then
         pcall(live.lb.Set, Adventure.lbText())
     end
-    if GUI.namekReport and FarmHub.every("namekTestUi", 2) then
-        pcall(GUI.namekReport.Set, GUI.namekTestText())
-    end
+    -- [Cleaned up dead GUI.namekReport loop check]
     if GUI.econCard and App.where == "match" then
         pcall(GUI.econCard.Set, {
             icon = "💰",
@@ -48725,6 +49179,13 @@ function GUI.update()
     end
     if live.farmQuick or live.farmRoutine then
         pcall(GUI.farmProgress)
+    end
+    if live.buffTest then
+        pcall(live.buffTest.Set, Match.buffTestText())
+    end
+    if live.buffTestLast then
+        local last = Brain.buffTest
+        pcall(live.buffTestLast.Set, type(last) == "table" and (os.date("%d.%m %H:%M", tonumber(last.at) or 0) .. "\n" .. tostring(last.text)) or "No test yet.")
     end
     if GUI.farmForms and FarmHub.every("farmForms", 15) then
         for _, form in ipairs(GUI.farmForms) do
