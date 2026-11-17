@@ -10,7 +10,7 @@ local AIRFLOW_SOURCE = [====[
 -- Teleports use this edition's local cache instead of fetching the old UI script.
 -- Statically checked; not run inside Roblox.
 
-local VERSION = "2.10"
+local VERSION = "2.11"
 if _G.AA_SF and _G.AA_SF.alive then
     if _G.AA_SF.version == VERSION then
         warn("[awaqwaa] v" .. VERSION .. " is already running")
@@ -1283,6 +1283,25 @@ table.insert(CHANGELOG, 1, {
             "Richer buff test and cast failure reasons",
             "Failed casts now log what the game answered and which copy tried to cast. Battle → Testing shows the squad template, cooldown check, relay copies and how much attacker damage stands under the full squad, relay copies or outside the buff.",
             "IMPROVED"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
+    v = "2.11",
+    date = "Nov 17, 2026",
+    title = "Dungeon: path planning",
+    items = {
+        {
+            "🧭",
+            "Dungeon path planner",
+            "Before each dungeon room, every path through the rooms the game shows (the rooms on offer and the rooms each one opens next) is scored in expected gems: chests count only if the run reaches room 20, so the chests you hold ride on every risky room; a curse lowers the win chance of the rooms after it (in the simulator); each lost try costs one Dungeon Room Value. Rooms past what the game shows are estimated from the rooms seen at that depth.",
+            "NEW"
+        },
+        {
+            "📜",
+            "The log shows the paths",
+            "The log lists each path with its win chances, curses, chance to reach room 20 and expected gems, then the chosen path and what puts it ahead. The dungeon box in Raids and Dungeon shows the plan.",
+            "NEW"
         }
     }
 })
@@ -16808,6 +16827,8 @@ do
     Brain.dg.seen = helper(Brain.dg.seen) or {
     }
     Brain.dg.runs = helper(Brain.dg.runs) or {
+    }
+    Brain.dg.offers = helper(Brain.dg.offers) or {
     }
     Brain.str = helper(readJson.str) or {
     }
@@ -34835,8 +34856,12 @@ function Dungeon.fx(arg1, roomCurse, arg3)
     if roomCurse and Dungeon.item(roomCurse) then
         items [roomCurse] = (items [roomCurse] or 0) + 1
     end
-    if arg3 and Dungeon.item(arg3) then
-        items [arg3] = (items [arg3] or 0) + 1
+    for _, extra in ipairs(type(arg3) == "table" and arg3 or {
+        arg3
+    }) do
+        if extra and Dungeon.item(extra) then
+            items [extra] = (items [extra] or 0) + 1
+        end
     end
     for itemKey, item in pairs(items) do
         local item2 = Dungeon.item(itemKey)
@@ -34905,13 +34930,17 @@ function Dungeon.fxText(fx)
     return # list > 0 and table.concat(list, ", ") or "none"
 end
 
-function Dungeon.sim(arg1, arg2, arg3)
+function Dungeon.sim(arg1, arg2, arg3, noOwn)
     if not Config.sim or type(arg1.r._l) ~= "table" then
         return nil
     end
-    local text = tostring(arg1.r._r or (arg1.d .. ":" .. arg1.choice)) .. (arg2 and ("+" .. tostring(arg2)) or "") .. (arg3 and "#spread" or "")
+    if type(arg2) == "table" then
+        arg2 = # arg2 > 1 and arg2 or arg2 [1]
+    end
+    local extraText = type(arg2) == "table" and table.concat(arg2, "+") or (arg2 and tostring(arg2)) or nil
+    local text = tostring(arg1.r._r or (arg1.d .. ":" .. tostring(arg1.parent or "") .. arg1.choice)) .. (extraText and ("+" .. extraText) or "") .. (arg3 and "#spread" or "") .. (noOwn and "#noown" or "")
     local value = Dungeon.data()
-    local fx = Dungeon.fx(value, Dungeon.roomCurse(arg1.r), arg2)
+    local fx = Dungeon.fx(value, not noOwn and Dungeon.roomCurse(arg1.r) or nil, arg2)
     local text2 = Modes.teamSig() .. "#" .. Dungeon.fxText(fx) .. (Config.killZone ~= false and "#stack" or "")
     local value = Brain.dg.sim [text]
     if value and value.sig == text2 then
@@ -34949,7 +34978,7 @@ function Dungeon.sim(arg1, arg2, arg3)
         }
     end
     Brain.dg.sim [text] = value
-    if Utils.count(Brain.dg.sim) > 60 then
+    if Utils.count(Brain.dg.sim) > 100 then
         local value, at
         for key, value2 in pairs(Brain.dg.sim) do
             if not at or (value2.at or 0) < at then
@@ -34962,15 +34991,19 @@ function Dungeon.sim(arg1, arg2, arg3)
     return not value.none and value or nil
 end
 
-function Dungeon.winP(room)
-    local value = tostring(math.min(4, math.max(1, math.ceil(room.d / 5))))
+function Dungeon.priorP(d)
+    local value = tostring(math.min(4, math.max(1, math.ceil(d / 5))))
     local value2 = Brain.dg.depth [value] or {
         runs = 0,
         wins = 0
     }
-    local clamp = Utils.clamp(0.95 - 0.015 * room.d, 0.5, 0.95)
-    local ratio = ((tonumber(value2.wins) or 0) + clamp * 2) / ((tonumber(value2.runs) or 0) + 2)
-    local ok, res = pcall(Dungeon.sim, room)
+    local clamp = Utils.clamp(0.95 - 0.015 * d, 0.5, 0.95)
+    return ((tonumber(value2.wins) or 0) + clamp * 2) / ((tonumber(value2.runs) or 0) + 2)
+end
+
+function Dungeon.winP(room, extras)
+    local ratio = Dungeon.priorP(room.d)
+    local ok, res = pcall(Dungeon.sim, room, extras)
     if ok and res and res.p then
         ratio = (ratio * 2 + res.p) / 3
     end
@@ -35059,7 +35092,7 @@ function Dungeon.payValue()
     return count / count2 * 0.7
 end
 
-function Dungeon.pick(arg1)
+function Dungeon.pickGreedy(arg1)
     local curses, lives = Dungeon.curses(arg1), Dungeon.lives(arg1)
     local res = Dungeon.res(arg1)
     local rooms = Dungeon.rooms(arg1)
@@ -35105,6 +35138,551 @@ function Dungeon.pick(arg1)
         rooms = rooms
     }
     return value
+end
+
+-- ===== Dungeon path planner (2.11) =====
+-- The game shows the rooms on offer and, for each, the rooms it opens next. Every path through what is shown is
+-- scored in expected gems:
+--   * chests are paid only if the run reaches room 20, so the chests held and won ride on surviving every room;
+--   * coins, shops and shrines count once their room is cleared (the old room points, 1 point = a quarter chest);
+--   * each lost try costs one Dungeon Room Value (time), counted for every room up to 20: a run that ends early
+--     gives nothing back (the key is gone), so dying never looks like saved time;
+--   * a curse lowers the win chance of the rooms after it (simulator), or costs its fixed price if the simulator
+--     can't play it.
+-- Rooms past what the game shows are estimated: average room seen at that depth, win chance from the depth prior.
+Dungeon.CHEST_GEMS = 150
+Dungeon.RARE_GEMS = 450
+Dungeon.POINT_GEMS = 37.5
+Dungeon.HOARD_GUESS = 350
+Dungeon.TRIES = 5
+Dungeon.CURSE_FLOOR = 0.3
+Dungeon.CHEST_SAMPLES = 5
+Dungeon.MAX_LAYERS = 6
+Dungeon.MAX_PATHS = 40
+
+function Dungeon.pct(x)
+    return math.floor((tonumber(x) or 0) * 100 + 0.5)
+end
+
+function Dungeon.chestGems()
+    local sums = {
+        normal = {
+            0,
+            0
+        },
+        rare = {
+            0,
+            0
+        }
+    }
+    for _, value in ipairs(type(Brain.dg.pay) == "table" and Brain.dg.pay or {
+    }) do
+        if type(value) == "table" and type(value.items) == "table" then
+            local gems = tonumber(value.gems) or 0
+            for itemKey, item in pairs(value.items) do
+                if (tonumber(item) or 0) > 0 then
+                    gems = gems + Modes.itemValue(itemKey, item)
+                end
+            end
+            local sum = sums [value.rare and "rare" or "normal"]
+            sum [1], sum [2] = sum [1] + gems, sum [2] + 1
+        end
+    end
+    local need = Dungeon.CHEST_SAMPLES
+    local normal = sums.normal [2] >= need and sums.normal [1] / sums.normal [2] or Dungeon.CHEST_GEMS
+    local rare = sums.rare [2] >= need and sums.rare [1] / sums.rare [2] or Dungeon.RARE_GEMS
+    local source
+    if sums.normal [2] >= need and sums.rare [2] >= need then
+        source = string.format("from %d chests you opened", sums.normal [2] + sums.rare [2])
+    elseif sums.normal [2] >= need or sums.rare [2] >= need then
+        source = string.format("%s from your chests, %s from the wiki", sums.normal [2] >= need and "chest" or "rare", sums.normal [2] >= need and "rare" or "chest")
+    else
+        source = string.format("wiki values until %d chests of a kind are opened", need)
+    end
+    return normal, rare, source
+end
+
+function Dungeon.roomParts(room, coins)
+    local tags, d = room.tags, room.d
+    local parts = {
+        chest = 0,
+        rare = 0,
+        points = 0,
+        coins = 0
+    }
+    if tags [Dungeon.T.GOLD] then
+        parts.rare = 1
+    end
+    if tags [Dungeon.T.CHEST] then
+        parts.chest = 1
+    end
+    if tags [Dungeon.T.MONEY] then
+        parts.points = parts.points + (d <= 15 and 2 or 0.5)
+        parts.coins = Dungeon.HOARD_GUESS
+    end
+    if tags [Dungeon.T.SHOP] then
+        if d >= 10 and d <= 15 then
+            parts.points = parts.points + (coins >= 300 and 5 or 1)
+        else
+            parts.points = parts.points + (coins >= 300 and (d > 15 and 3 or 1) or 0.3)
+        end
+    end
+    if tags [Dungeon.T.SHRINE] then
+        parts.points = parts.points + 1.5
+    end
+    if tags [Dungeon.T.CURSE] then
+        parts.curse = Dungeon.roomCurse(room.r) or "?"
+    end
+    return parts
+end
+
+function Dungeon.curseName(curse)
+    return tostring((Dungeon.item(curse) or {
+    }).name or curse)
+end
+
+-- points a curse costs on top of what the simulator sees: its full fixed price if the simulator can't play it
+-- (coins, shop prices, explosions…), else a share of it for the simulator's own error
+function Dungeon.cursePoints(arg1, curse)
+    local cost = Dungeon.curseCost(curse)
+    if curse == "?" or Dungeon.blindCurse(arg1, curse) then
+        return cost, true
+    end
+    return cost * Dungeon.CURSE_FLOOR, false
+end
+
+function Dungeon.paths(arg1)
+    local list, top, layers = {
+    }, {
+    }, 0
+    local function walk(container, prefix, parent)
+        for _, room in ipairs(Dungeon.list(container)) do
+            if # list >= Dungeon.MAX_PATHS then
+                return
+            end
+            room.parent = parent
+            if not parent then
+                table.insert(top, room)
+            end
+            local path = table.clone(prefix)
+            table.insert(path, room)
+            layers = math.max(layers, # path)
+            local nested = type(container) == "table" and container ["next" .. tostring(room.choice)] or nil
+            if type(nested) ~= "table" and type(room.r.next) == "table" then
+                nested = room.r.next
+            end
+            if # path < Dungeon.MAX_LAYERS and # Dungeon.list(nested) > 0 then
+                walk(nested, path, (parent or "") .. tostring(room.choice) .. ">")
+            else
+                table.insert(list, path)
+            end
+        end
+    end
+    walk(arg1 and arg1.next, {
+    }, nil)
+    return list, layers, top
+end
+
+-- the average room on offer at each depth (rooms 1–5, 6–10, 11–15, 16–20): what earlier runs offered,
+-- blended with what the game shows now. An average room, not the best of three, so it errs on the low side.
+function Dungeon.futureRooms(visible)
+    local prior = {
+        chest = 0,
+        rare = 0,
+        points = 0,
+        n = 0
+    }
+    for _, parts in ipairs(visible) do
+        prior.chest, prior.rare, prior.points, prior.n = prior.chest + parts.chest, prior.rare + parts.rare, prior.points + parts.points, prior.n + 1
+    end
+    if prior.n > 0 then
+        prior.chest, prior.rare, prior.points = prior.chest / prior.n, prior.rare / prior.n, prior.points / prior.n
+    end
+    local out = {
+    }
+    for bucket = 1, 4 do
+        local rec = type(Brain.dg.offers) == "table" and Brain.dg.offers [tostring(bucket)] or nil
+        local n = rec and tonumber(rec.n) or 0
+        local function mix(key)
+            return ((rec and tonumber(rec [key]) or 0) + prior [key] * 3) / (n + 3)
+        end
+        out [bucket] = {
+            chest = mix("chest"),
+            rare = mix("rare"),
+            points = mix("points"),
+            seen = n
+        }
+    end
+    return out
+end
+
+function Dungeon.scorePath(arg1, path, ctx)
+    local survive, other, tries = 1, 0, 0
+    local chests, rare, coins = ctx.chests, ctx.rare, ctx.coins
+    local curses, rows = {
+    }, {
+    }
+    for j, room in ipairs(path) do
+        local p, sim = Dungeon.winP(room, # curses > 0 and table.clone(curses) or nil)
+        local n = j == 1 and math.max(1, ctx.lives) or Dungeon.TRIES
+        local clear = 1 - (1 - p) ^ n
+        tries = tries + ((p > 0 and clear / p or n) - 1)
+        survive = survive * clear
+        local parts = Dungeon.roomParts(room, coins)
+        coins = coins + parts.coins
+        chests, rare = chests + parts.chest, rare + parts.rare
+        local points, blind = parts.points, nil
+        if parts.curse then
+            local cost
+            cost, blind = Dungeon.cursePoints(arg1, parts.curse)
+            points = points - cost
+            table.insert(curses, parts.curse)
+        end
+        other = other + survive * points * Dungeon.POINT_GEMS
+        table.insert(rows, {
+            room = room,
+            p = p,
+            sim = sim,
+            clear = clear,
+            parts = parts,
+            blind = blind
+        })
+    end
+    local last = path [# path]
+    local mult = 1
+    if # curses > 0 then
+        local okA, withCurses = pcall(Dungeon.sim, last, table.clone(curses), nil, true)
+        local okB, without = pcall(Dungeon.sim, last, nil, nil, true)
+        if okA and okB and withCurses and without and (tonumber(without.p) or 0) > 0 then
+            mult = Utils.clamp((tonumber(withCurses.p) or 0) / without.p, 0, 1)
+        end
+    end
+    local later = 0
+    for k = last.d + 1, Dungeon.ROOMS do
+        local p = Dungeon.priorP(k) * (2 + mult) / 3
+        local clear = 1 - (1 - p) ^ Dungeon.TRIES
+        tries = tries + ((p > 0 and clear / p or Dungeon.TRIES) - 1)
+        survive = survive * clear
+        local room = ctx.future [math.min(4, math.max(1, math.ceil(k / 5)))]
+        chests, rare = chests + room.chest, rare + room.rare
+        other = other + survive * room.points * Dungeon.POINT_GEMS
+        later = later + 1
+    end
+    local chestValue = (chests * ctx.chestG + rare * ctx.rareG) * survive
+    local tryCost = tries * ctx.tryCost
+    return {
+        path = path,
+        rows = rows,
+        ev = chestValue + other - tryCost,
+        chestValue = chestValue,
+        other = other,
+        tryCost = tryCost,
+        tries = tries,
+        reach = survive,
+        chests = chests,
+        rare = rare,
+        curses = curses,
+        mult = mult,
+        later = later
+    }
+end
+
+function Dungeon.pathName(scored)
+    local list = {
+    }
+    for _, room in ipairs(scored.path) do
+        table.insert(list, Dungeon.roomName(room))
+    end
+    return table.concat(list, " → ")
+end
+
+function Dungeon.planWhy(plan)
+    local best, alt = plan.best, plan.alt
+    local skipped = ""
+    local top = plan.scored [1]
+    if top and top ~= best and top.path [1].blocked then
+        skipped = string.format(" · %s scored higher (%d gems) but is skipped: %s", Dungeon.pathName(top), math.floor(top.ev + 0.5), top.path [1].blocked)
+    end
+    if not alt then
+        return "the only room on offer" .. skipped
+    end
+    local bits = {
+    }
+    local function add(label, diff)
+        if math.abs(diff) >= 1 then
+            table.insert(bits, {
+                label = label,
+                diff = diff
+            })
+        end
+    end
+    add("chests paid at room 20", best.chestValue - alt.chestValue)
+    add("coins, shops and shrines", best.other - alt.other)
+    add("fewer lost tries", alt.tryCost - best.tryCost)
+    table.sort(bits, function(a, b)
+        return math.abs(a.diff) > math.abs(b.diff)
+    end)
+    local list = {
+    }
+    for _, bit in ipairs(bits) do
+        table.insert(list, string.format("%s %+d", bit.label, math.floor(bit.diff + 0.5)))
+    end
+    local reach = ""
+    if math.abs(best.reach - alt.reach) >= 0.01 then
+        reach = string.format(" · reaches room 20 %d%% vs %d%%", Dungeon.pct(best.reach), Dungeon.pct(alt.reach))
+    end
+    return string.format("%d gems ahead of the best path through another room, %s (%s)%s%s", math.floor(best.ev - alt.ev + 0.5), Dungeon.pathName(alt), # list > 0 and table.concat(list, ", ") or "same parts", reach, skipped)
+end
+
+function Dungeon.plan(arg1)
+    local paths, layers, top = Dungeon.paths(arg1)
+    if # top == 0 then
+        return nil
+    end
+    local coins, held, heldRare = Dungeon.res(arg1)
+    local chestG, rareG, source = Dungeon.chestGems()
+    local visible, seen = {
+    }, {
+    }
+    for _, path in ipairs(paths) do
+        for _, room in ipairs(path) do
+            if not seen [room] then
+                seen [room] = true
+                table.insert(visible, Dungeon.roomParts(room, coins))
+            end
+        end
+    end
+    local ctx = {
+        lives = Dungeon.lives(arg1),
+        coins = coins,
+        chests = held,
+        rare = heldRare,
+        chestG = chestG,
+        rareG = rareG,
+        tryCost = math.max(0, tonumber(Config.dungeonValue) or 150),
+        future = Dungeon.futureRooms(visible)
+    }
+    local scored = {
+    }
+    for _, path in ipairs(paths) do
+        local ok, res = pcall(Dungeon.scorePath, arg1, path, ctx)
+        if ok and res then
+            table.insert(scored, res)
+        else
+            App.log(1, "ERROR", "dungeon path: " .. tostring(res))
+        end
+        task.wait()
+    end
+    table.sort(scored, function(a, b)
+        return a.ev > b.ev
+    end)
+    for _, room in ipairs(top) do
+        room.blocked, room.score, room.nextRoom = nil, nil, nil
+        for _, entry in ipairs(scored) do
+            if entry.path [1] == room then
+                room.score, room.p, room.sim, room.nextRoom = entry.ev, entry.rows [1].p, entry.rows [1].sim, entry.path [2]
+                break
+            end
+        end
+        if not room.p then
+            room.p, room.sim = Dungeon.winP(room)
+        end
+        local ok, pass, why = pcall(Dungeon.curseGate, room, arg1)
+        if ok and not pass then
+            room.blocked = why
+        end
+    end
+    local best
+    for _, entry in ipairs(scored) do
+        if not entry.path [1].blocked then
+            best = entry
+            break
+        end
+    end
+    best = best or scored [1]
+    local alt
+    for _, entry in ipairs(scored) do
+        if best and entry.path [1] ~= best.path [1] and not entry.path [1].blocked then
+            alt = entry
+            break
+        end
+    end
+    local plan = {
+        best = best,
+        alt = alt,
+        scored = scored,
+        top = top,
+        layers = layers,
+        ctx = ctx,
+        source = source,
+        held = held,
+        heldRare = heldRare
+    }
+    plan.why = best and Dungeon.planWhy(plan) or nil
+    return plan
+end
+
+function Dungeon.pick(arg1)
+    local res, res2, res3 = Dungeon.res(arg1)
+    local list = {
+    }
+    for _, room in ipairs(Dungeon.rooms(arg1)) do
+        table.insert(list, tostring(room.r._r))
+    end
+    local itemCount = 0
+    for _, item in pairs(Dungeon.items(arg1)) do
+        itemCount = itemCount + item
+    end
+    local text = "plan|" .. table.concat(list, ",") .. string.format("|%d|%d|%d|%d|%d|%s", Dungeon.lives(arg1), res, res2, res3, itemCount, Modes.teamSig())
+    if Dungeon._pick and Dungeon._pick.sig == text then
+        return Dungeon._pick.x
+    end
+    local ok, plan = pcall(Dungeon.plan, arg1)
+    if not ok then
+        App.log(1, "ERROR", "dungeon plan: " .. tostring(plan))
+    end
+    if not ok or not plan or not plan.best then
+        Dungeon._pick = nil
+        return Dungeon.pickGreedy(arg1)
+    end
+    local value = plan.best.path [1]
+    Dungeon._pick = {
+        sig = text,
+        x = value,
+        rooms = plan.top,
+        plan = plan
+    }
+    return value
+end
+
+function Dungeon.planLog(plan)
+    if not (plan and plan.best) then
+        return
+    end
+    local ctx, first = plan.ctx, plan.best.path [1]
+    local shown = first.d + plan.layers - 1
+    App.log(1, "DUNGEON", string.format("plan for room %d: %d paths through the %d room%s the game shows%s · at stake %d chests + %d rare · %d %s · a chest ≈%d gems, a rare one ≈%d (%s) · a lost try costs %d gems",
+        first.d,
+        # plan.scored,
+        plan.layers,
+        plan.layers == 1 and "" or "s",
+        shown < Dungeon.ROOMS and string.format(" (rooms %d–%d estimated)", shown + 1, Dungeon.ROOMS) or "",
+        plan.held,
+        plan.heldRare,
+        ctx.lives,
+        ctx.lives == 1 and "try left here" or "tries left here",
+        math.floor(ctx.chestG + 0.5),
+        math.floor(ctx.rareG + 0.5),
+        plan.source,
+        math.floor(ctx.tryCost + 0.5)))
+    for i, entry in ipairs(plan.scored) do
+        if i > 12 then
+            App.log(1, "DUNGEON", string.format("… and %d more paths, all lower", # plan.scored - 12))
+            break
+        end
+        local wins, curses = {
+        }, {
+        }
+        for _, row in ipairs(entry.rows) do
+            table.insert(wins, string.format("%d%%%s", Dungeon.pct(row.p), row.sim and "" or "*"))
+            if row.parts.curse then
+                table.insert(curses, Dungeon.curseName(row.parts.curse) .. (row.blind and " (not in the simulator)" or ""))
+            end
+        end
+        local after = entry.mult < 0.995 and string.format(", later rooms ×%.2f to win", (2 + entry.mult) / 3) or ""
+        App.log(1, "DUNGEON", string.format("%s %s: win %s · curses %s%s · lost tries ≈%.1f · reaches room 20 %d%% · %d gems expected%s",
+            entry == plan.best and "✓" or "·",
+            Dungeon.pathName(entry),
+            table.concat(wins, " → "),
+            # curses > 0 and table.concat(curses, ", ") or "none",
+            after,
+            entry.tries,
+            Dungeon.pct(entry.reach),
+            math.floor(entry.ev + 0.5),
+            entry.path [1].blocked and (" (skipped: " .. entry.path [1].blocked .. ")") or ""))
+    end
+    App.log(1, "DUNGEON", "chosen: " .. Dungeon.pathName(plan.best) .. " — " .. tostring(plan.why) .. " (* = the simulator couldn't play the room: depth prior only)")
+end
+
+function Dungeon.planText(plan)
+    local best = plan.best
+    return string.format("Plan: %s · reaches room 20 ≈%d%% · ≈%d gems expected (%d paths, %d room%s shown)", Dungeon.pathName(best), Dungeon.pct(best.reach), math.floor(best.ev + 0.5), # plan.scored, plan.layers, plan.layers == 1 and "" or "s")
+end
+
+-- the rooms on offer, by depth: what an average room gives, for the rooms past what the game shows
+function Dungeon.recordOffers(plan)
+    local seeds = {
+    }
+    for _, room in ipairs(plan.top) do
+        table.insert(seeds, tostring(room.r._r))
+    end
+    local key = table.concat(seeds, ",")
+    if Brain.dg.offerSig == key then
+        return
+    end
+    Brain.dg.offerSig = key
+    Brain.dg.offers = type(Brain.dg.offers) == "table" and Brain.dg.offers or {
+    }
+    for _, room in ipairs(plan.top) do
+        local bucket = tostring(math.min(4, math.max(1, math.ceil(room.d / 5))))
+        local rec = Brain.dg.offers [bucket] or {
+            n = 0,
+            chest = 0,
+            rare = 0,
+            points = 0
+        }
+        local parts = Dungeon.roomParts(room, plan.ctx.coins)
+        rec.n, rec.chest, rec.rare, rec.points = (tonumber(rec.n) or 0) + 1, (tonumber(rec.chest) or 0) + parts.chest, (tonumber(rec.rare) or 0) + parts.rare, (tonumber(rec.points) or 0) + parts.points
+        if rec.n > 200 then
+            rec.n, rec.chest, rec.rare, rec.points = rec.n / 2, rec.chest / 2, rec.rare / 2, rec.points / 2
+        end
+        Brain.dg.offers [bucket] = rec
+    end
+    App.saveSoon()
+end
+
+-- once per shape: how many room layers the game's data shows, and what the game's dungeon module offers
+function Dungeon.probe(arg1)
+    local function layersOf(container, depth)
+        local rooms = Dungeon.list(container)
+        if # rooms == 0 or depth > 8 then
+            return 0
+        end
+        local most = 0
+        for _, room in ipairs(rooms) do
+            local nested = type(container) == "table" and container ["next" .. tostring(room.choice)] or nil
+            local inner = layersOf(nested, depth + 1)
+            if type(room.r.next) == "table" then
+                inner = math.max(inner, layersOf(room.r.next, depth + 1))
+            end
+            most = math.max(most, inner)
+        end
+        return 1 + most
+    end
+    local layers = layersOf(arg1 and arg1.next, 1)
+    local key = "layers:" .. layers
+    if layers > 0 and not Brain.dg.seen [key] then
+        Brain.dg.seen [key] = os.time()
+        App.log(1, "DUNGEON", string.format("the game's data shows %d room layer%s (the rooms on offer included)%s", layers, layers == 1 and "" or "s", layers <= 2 and ": rooms past that are estimated" or ": the planner uses all of them"))
+        App.saveSoon()
+    end
+    if not Brain.dg.seen.core then
+        local core = Dungeon.core()
+        if type(core) == "table" then
+            local names = {
+            }
+            for name, value in pairs(core) do
+                if type(value) == "function" then
+                    table.insert(names, tostring(name))
+                end
+            end
+            table.sort(names)
+            Brain.dg.seen.core = os.time()
+            App.log(1, "DUNGEON", "functions in the game's dungeon module (looked at once, to see whether rooms past the shown ones can be worked out): " .. (# names > 0 and table.concat(names, ", ") or "none"))
+            App.saveSoon()
+        end
+    end
+    return layers
 end
 
 function Dungeon.roomName(arg1)
@@ -35566,7 +36144,7 @@ function Dungeon.launch(mode)
         end
         Brain.dg.lost = {
         }
-        Dungeon.note("new dungeon run started (4 lives)")
+        Dungeon.note(string.format("new dungeon run started (%d tries per room)", Dungeon.lives(value)))
     end
     if Dungeon.enter(value, mode.value, false) then
         return true
@@ -35798,6 +36376,7 @@ function Dungeon.enter(arg1, dungeonValue, arg3)
         end
     end
     Dungeon._pick = nil
+    pcall(Dungeon.probe, arg1)
     local value = Dungeon.pick(arg1)
     if not value then
         Dungeon.logState(arg1, "no rooms on offer")
@@ -35886,16 +36465,25 @@ function Dungeon.enter(arg1, dungeonValue, arg3)
     local res, res2, res3 = Dungeon.res(arg1)
     local text = string.format("win ≈%d%%%s · leads to %s · %d lives · %d coins · chests %d + %d rare", math.floor(value.p * 100 + 0.5), value.sim and (" (sim: " .. tostring(value.sim.margin) .. ")") or "", value.nextRoom and Dungeon.roomName(value.nextRoom) or "the last room", Dungeon.lives(arg1), res, res2, res3)
     App.log(1, "MODE", string.format("entering dungeon room %d/%d%s: %s — %s", value.d, Dungeon.ROOMS, arg3 and " from the results screen" or "", Dungeon.roomName(value), text))
-    local list = {
-    }
-    for _, room in ipairs(Dungeon._pick and Dungeon._pick.rooms or {
-    }) do
-        if room ~= value then
-            table.insert(list, string.format("%s, win ≈%d%%%s", Dungeon.roomName(room), math.floor((room.p or 0) * 100 + 0.5), room.blocked and (" (skipped: " .. room.blocked .. ")") or ""))
+    local plan = Dungeon._pick and Dungeon._pick.plan
+    if plan then
+        local ok, res = pcall(Dungeon.planLog, plan)
+        if not ok then
+            App.log(1, "ERROR", "dungeon plan log: " .. tostring(res))
         end
-    end
-    if # list > 0 then
-        App.log(1, "DUNGEON", "chosen over: " .. table.concat(list, " · "))
+        pcall(Dungeon.recordOffers, plan)
+    else
+        local list = {
+        }
+        for _, room in ipairs(Dungeon._pick and Dungeon._pick.rooms or {
+        }) do
+            if room ~= value then
+                table.insert(list, string.format("%s, win ≈%d%%%s", Dungeon.roomName(room), math.floor((room.p or 0) * 100 + 0.5), room.blocked and (" (skipped: " .. room.blocked .. ")") or ""))
+            end
+        end
+        if # list > 0 then
+            App.log(1, "DUNGEON", "chosen over (one-room choice, the path planner had nothing): " .. table.concat(list, " · "))
+        end
     end
     App.saveNow()
     App.status("Mode", "entering dungeon room " .. value.d)
@@ -36015,7 +36603,11 @@ function Dungeon.text()
     table.insert(list3, "They add up to: " .. Dungeon.fxText(Dungeon.fx(value)))
     local x = Dungeon._pick and Dungeon._pick.x
     if x then
-        table.insert(list3, string.format("Next: %s, win ≈%d%%", Dungeon.roomName(x), math.floor(x.p * 100 + 0.5)))
+        table.insert(list3, string.format("Next: %s, win ≈%d%%", Dungeon.roomName(x), math.floor((x.p or 0) * 100 + 0.5)))
+    end
+    local plan = Dungeon._pick and Dungeon._pick.plan
+    if plan and plan.best then
+        table.insert(list3, Dungeon.planText(plan))
     end
     for i, value in ipairs(Brain.dg.log) do
         if i <= 4 then
@@ -37347,8 +37939,13 @@ function Match.planBuffSquad(unit, allyBuff, mates, cands, fighters)
         end
         return true
     end
+    local combos = 0
     local function search(start, pickedScore)
         if # chosen == remain then
+            combos = combos + 1
+            if combos % 3000 == 0 then
+                task.wait()
+            end
             local allSpots = {
             }
             for _, a in ipairs(anchors) do
@@ -39854,7 +40451,23 @@ function Match.buffGain(member)
             if not rotationRunning or # mates >= Units.BUFF_RELAY_MAX or not (squadCopies and # squadCopies >= need) then
                 return 0
             end
-            local _, _, unbuffedDps = Match.bestRelaySpot(member, allyBuff, squadCopies, relayCopies)
+            -- The relay spot search walks every candidate spot: reuse its answer for 3 s while the field stays the same.
+            local cacheKey = string.format("%s:%d:%d", tostring(allyBuff.attack), # mates, # (Match.mine or {
+            }))
+            local cached = Match.relayGainCache and Match.relayGainCache [cacheKey]
+            local unbuffedDps
+            if cached and Utils.now() - cached.at < 3 then
+                unbuffedDps = cached.dps
+            else
+                local _, _, found = Match.bestRelaySpot(member, allyBuff, squadCopies, relayCopies)
+                unbuffedDps = found or 0
+                Match.relayGainCache = Match.relayGainCache or {
+                }
+                Match.relayGainCache [cacheKey] = {
+                    at = Utils.now(),
+                    dps = unbuffedDps
+                }
+            end
             if not unbuffedDps or unbuffedDps <= 0 then
                 return 0
             end
@@ -45009,6 +45622,8 @@ function Match.run()
     Match.buffCdSeen = {
     }
     Match.buffTemplates = {
+    }
+    Match.relayGainCache = {
     }
     Match.style, Match.styleSig = nil, nil
     Match.refusals = 0
