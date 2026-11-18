@@ -10,7 +10,7 @@ local AIRFLOW_SOURCE = [====[
 -- Teleports use this edition's local cache instead of fetching the old UI script.
 -- Statically checked; not run inside Roblox.
 
-local VERSION = "2.11"
+local VERSION = "2.23"
 if _G.AA_SF and _G.AA_SF.alive then
     if _G.AA_SF.version == VERSION then
         warn("[awaqwaa] v" .. VERSION .. " is already running")
@@ -1305,6 +1305,288 @@ table.insert(CHANGELOG, 1, {
         }
     }
 })
+table.insert(CHANGELOG, 1, {
+    v = "2.12",
+    date = "Nov 18, 2026",
+    title = "Discord and Auto Rejoin",
+    items = {
+        {
+            "📨",
+            "Discord messages",
+            "Paste your own Discord webhook in Settings → Discord and reconnect: a message after every match (result, wave, time, gems, coins, items and the session so far), a session summary every few hours, and alerts when the farm stops, makes no progress or loses the connection. The link stays in settings.json on your PC and the window never shows its key.",
+            "NEW"
+        },
+        {
+            "🔌",
+            "Auto Rejoin",
+            "After a lost connection, a timeout or a server shutdown the farm joins the lobby again, starts itself there and goes on. Never after a kick, a ban or a login from another device, and at most 3 tries in 15 minutes.",
+            "NEW"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
+    v = "2.13",
+    date = "Nov 18, 2026",
+    title = "Richer reports",
+    items = {
+        {
+            "🌀",
+            "More in the match message",
+            "The Discord message after a match now says what it was: a portal's tier, modifiers and how many like it are left; the challenge; the element buffs (what enemies take more from, what they resist); for a dungeon the room, tries left, chests, curses and the planned path. The script version is at the bottom.",
+            "NEW"
+        },
+        {
+            "📋",
+            "Compact results",
+            "Settings → Discord and reconnect → Compact Results: one line per match, several matches in one short list.",
+            "NEW"
+        },
+        {
+            "⚙️",
+            "Performance report",
+            "Performance tab: FPS, memory, ping and the script's own memory now, plus the session's average and worst FPS and how much memory grew. The Discord summary carries the same.",
+            "NEW"
+        },
+        {
+            "🔁",
+            "Team change log",
+            "Every team swap the farm makes is written to team-changes.log in the script's folder: who went out, who came in, why, and whether the game took it.",
+            "NEW"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
+    v = "2.14",
+    date = "Nov 18, 2026",
+    title = "Smarter upgrades, faster placement plan",
+    items = {
+        {
+            "📐",
+            "Range upgrades count",
+            "An upgrade that widens a unit's circle is now valued by how much more road the unit reaches from where it stands. Before, an upgrade that only added range was worth nothing to Smart Autoplay, and range on top of damage was undervalued.",
+            "FIX"
+        },
+        {
+            "🪜",
+            "Weak step before a strong one",
+            "When the next upgrade adds little but the one after hits more enemies at once, the pair is judged on equal terms, area of effect included.",
+            "FIX"
+        },
+        {
+            "🌾",
+            "Safer farms with random units",
+            "With random equipped units a cheap farm is only bought when the defense still keeps up with the next waves after paying for it.",
+            "FIX"
+        },
+        {
+            "⚡",
+            "Faster placement plan",
+            "The placement plan no longer simulates the same layout twice, and the team search keeps to its time budget.",
+            "NEW"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
+    v = "2.15",
+    date = "Nov 18, 2026",
+    title = "Range judged on the real road in the planner",
+    items = {
+        {
+            "🗺️",
+            "Planner sees the road",
+            "When the planner's simulation weighs a range upgrade, it now counts the stretch of road the wider circle adds from the unit's planned spot, the same road it deals damage on. A range upgrade that reaches no new road is no longer bought in the simulation, and one that reaches a bend is valued for it.",
+            "FIX"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
+    v = "2.16",
+    date = "Nov 18, 2026",
+    title = "More runs per hour, fairer spot memory",
+    items = {
+        {
+            "⏱️",
+            "Faster team when it is safe",
+            "When two lineups both clear a mode with room to spare (they still win against enemies with 30% more HP), the planner now takes the one that finishes sooner: more runs, so more rewards, per hour. The short-mode farm rule and endless modes are not affected.",
+            "NEW"
+        },
+        {
+            "🧠",
+            "Spot memory that forgets",
+            "Wins and losses at a spot used to add up forever, and one loss weighed as much as seven wins. Now older runs fade, a loss is mostly blamed on the whole placement plan rather than on every spot in it, and all this history together moves a plan by about one wave at most: enough to steer away from a plan that keeps losing, not enough to overrule the simulator.",
+            "FIX"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
+    v = "2.17",
+    date = "Nov 18, 2026",
+    title = "Buffer pairs in the team search",
+    items = {
+        {
+            "🤝",
+            "Buffer with the right partner",
+            "When the team search tries bringing in a buffer, it now brings it with the strongest free attacker of the damage type that buffer raises (up to two buffers are tried), instead of whichever attacker came first.",
+            "FIX"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
+    v = "2.18",
+    date = "Nov 18, 2026",
+    title = "Tier list of your units",
+    items = {
+        {
+            "🏆",
+            "Tier list from your own units",
+            "Each plan now spends part of its time measuring your units in the simulator: how much each one adds to your team on this mode. They are ranked S / A / B / C per mode and remembered. The best go first in the team search, so a strong cheap unit the old formula overlooked is no longer missed, and with a big collection the weakest stop taking the search's time. Shown in Battle → Planner → Plan (Tier list) and in the log.",
+            "NEW"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
+    v = "2.19",
+    date = "Nov 18, 2026",
+    title = "Fused Hero in the tier list, safer plans",
+    items = {
+        {
+            "🐉",
+            "Fused Hero in the tier list",
+            "Carrot and Vego are measured together, with the fusion, and shown as one line: Fused Hero (Carrot + Vego). When it ranks S or A, both go first in the team search. Units with passives the simulator does not model are marked * until 3 real runs with them have corrected their damage.",
+            "NEW"
+        },
+        {
+            "🛡️",
+            "Room to spare, three ways",
+            "A faster lineup now counts as safe only if it also wins when its real damage is 15% under the estimate and when enemies walk 15% faster, not only against thicker enemies.",
+            "NEW"
+        },
+        {
+            "🕊️",
+            "Flying enemies checked apart",
+            "Before a farm buy, Smart Autoplay checks coming flying enemies against the damage of the units that can hit the air, not against the whole team's damage.",
+            "FIX"
+        },
+        {
+            "🗺️",
+            "Calibration per map",
+            "A new mode on a map you already farm starts from what real runs on that map taught, not from the average of all maps.",
+            "NEW"
+        },
+        {
+            "🔁",
+            "Units trade places",
+            "The placement plan also tries two units swapping spots, a move no single unit can make when every good spot is taken.",
+            "NEW"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
+    v = "2.20",
+    date = "Nov 18, 2026",
+    title = "Spots that suit the attack's shape",
+    items = {
+        {
+            "📐",
+            "Placement knows the attack's shape",
+            "A line attack is worth more where the road runs straight along its hit, a circle where the road folds and enemies bunch, a cone where road lies in front of the unit. The placement plan now measures this for every spot a unit can stand on, adds the spots that suit its shape to the ones it tries, and its simulation gives each spot its own number of enemies per hit. The log shows it per unit (for example \"circle attack: ×1.40 of an ordinary spot's extra targets\").",
+            "NEW"
+        },
+        {
+            "🎯",
+            "One hit, the right number of targets",
+            "The simulator let a hit reach one enemy too many: that enemy took no damage but still got the stun or slow, bleed and shield chip. A single-target stunner counted as stunning two. Fixed, so control units are no longer overrated.",
+            "FIX"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
+    v = "2.21",
+    date = "Nov 18, 2026",
+    title = "Fairer learning, smarter Infinite exits",
+    items = {
+        {
+            "📈",
+            "Fair unit learning",
+            "What a unit could deal is now summed second by second while it stood and had a target. A unit placed or upgraded late is no longer marked weaker than it is, in the simulator and in the tier list.",
+            "FIX"
+        },
+        {
+            "✨",
+            "One rule for abilities",
+            "The simulator now fires abilities by the same rule as the match: at once for a boss or an enemy near the base, and not on an almost dead group.",
+            "FIX"
+        },
+        {
+            "⏳",
+            "Whole run cycle per mode",
+            "Mode choice counts how long wins and losses take and what a loss pays, and a new mode's bonus for a try fades over ten runs instead of stopping after two.",
+            "NEW"
+        },
+        {
+            "🎯",
+            "Calibration per measure",
+            "Enemy speed, damage, yen and the rest each count their own observations: the first real damage reading counts in full.",
+            "FIX"
+        },
+        {
+            "♾️",
+            "Infinite: is the rest worth it?",
+            "After the daily gems, the run goes on while the next waves (up to ten ahead, from your past runs on this mode) pay more per minute than the best other mode.",
+            "NEW"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
+    v = "2.22",
+    date = "Nov 18, 2026",
+    title = "Attack shape everywhere, a look ahead before farms",
+    items = {
+        {
+            "📐",
+            "One line shape",
+            "A line attack is measured the same way when the script scores a spot and when it turns the unit: by the attack's own width when the game gives one.",
+            "FIX"
+        },
+        {
+            "🧭",
+            "Attack shape off the plan",
+            "When a unit has no planned spot (or it is taken), and in the kill box, fast style and for units that stun or slow, the best spots by road are re-ranked by the unit's attack shape, as the placement plan does.",
+            "NEW"
+        },
+        {
+            "🔮",
+            "A look ahead before a farm",
+            "When enemies already get some way down the road and the economy wants a farm, the simulator plays the next 5 waves from this very moment, with the farm and with more damage. If the farm costs the base, damage goes first.",
+            "NEW"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
+    v = "2.23",
+    date = "Nov 18, 2026",
+    title = "Smarter farm buying",
+    items = {
+        {
+            "💴",
+            "Best farm order",
+            "Which farm to buy next is found by playing the next buys forward wave by wave: buy the farm you can afford now or save for a better one, three small upgrades or one big one. The order that ends the match with the most yen goes first.",
+            "NEW"
+        },
+        {
+            "♾️",
+            "Farms in Infinite",
+            "In Infinite a farm must pay back within the waves your past runs on this mode usually go on from here, not within a fixed look-ahead.",
+            "NEW"
+        },
+        {
+            "⚖️",
+            "Same team, same buys",
+            "The number of attackers on the field is counted before the buy choice, so units early in the team no longer get a bonus the last ones don't, in the match and in the simulator.",
+            "FIX"
+        }
+    }
+})
 local App = {
     alive = true,
     conns = {
@@ -1368,6 +1650,14 @@ local Strategy = {
 local Hunt = {
 }
 local Farming = {
+}
+local Discord = {
+}
+local Rejoin = {
+}
+local Perf = {
+}
+local TeamLog = {
 }
 local GUI = {
     UI = {
@@ -1532,6 +1822,12 @@ Core.DEFAULTS = {
     focusDone = "",
     simpleGui = false,
     antiAfk = true,
+    autoRejoin = true,
+    discordUrl = "",
+    discordMatches = true,
+    discordCompact = false,
+    discordAlerts = true,
+    discordSummaryHours = 3,
     logConsole = false,
     logLevel = 1,
     shareStats = false,
@@ -16724,6 +17020,9 @@ do
     Brain.live = helper(readJson.live) or {
     }
     Brain.lastResult = helper(readJson.lastResult)
+    Brain.discord = helper(readJson.discord)
+    Brain.rejoin = helper(readJson.rejoin)
+    Brain.lobbyPlace = tonumber(readJson.lobbyPlace)
     Brain.fuseInfo = helper(readJson.fuseInfo)
     Brain.history = helper(readJson.history) or {
     }
@@ -16749,12 +17048,14 @@ do
     end
     Brain.maps = helper(readJson.maps) or {
     }
-    local num = 4
+    local num = 11
     local flag = tonumber(readJson.simVer) == num
     Brain.simVer = num
     Brain.simRes = flag and helper(readJson.simRes) or {
     }
     Brain.simTeam = flag and helper(readJson.simTeam) or {
+    }
+    Brain.tiers = flag and helper(readJson.tiers) or {
     }
     Brain.simEvo = flag and helper(readJson.simEvo) or {
     }
@@ -17736,6 +18037,19 @@ function Units.attackInfo(atk, range)
         if not arg1.hit_allies then
             count = count + damage * arg2 * math.min(num, 4)
             info.hits = info.hits + arg2
+            local weight = damage * math.max(arg2, 0.01) * math.min(num, 4)
+            if aoeType.type and (not info.shapeW or weight > info.shapeW) then
+                info.shapeW = weight
+                local kind = aoeType.type
+                kind = (kind == "target_aoe_circ" or kind == "circ") and "circle" or (kind == "straight" and "line") or (kind == "full" and "full_aoe") or kind
+                info.shape = {
+                    type = kind,
+                    radius = tonumber(aoeType.radius) or 4,
+                    angle = tonumber(aoeType.angle) or 45,
+                    length = tonumber(aoeType.length) or tonumber(range) or 10,
+                    width = tonumber(aoeType.width)
+                }
+            end
         end
         for _, buff in pairs(hit.buffs or {
         }) do
@@ -17848,6 +18162,27 @@ function Units.attackInfo(atk, range)
     info.hits = math.max(1, info.hits)
     Units._atk [text] = info
     return info
+end
+
+-- When to fire an attacking ability, the same rule in a match and in the simulator (2.21; before, the
+-- simulator had no "enemy near the base" and no "not on an almost dead group"). s: count (enemies in
+-- reach), boss, nearBase (one in reach is past 82% of the road), crowd (all enemies on the road),
+-- held (seconds since it became ready), cd (its cooldown), inRangeHp, teamDps.
+function Units.castDecision(s)
+    local hold = math.min((tonumber(Config.abilityHold) or 20) * math.max(1, s.cd / 60), s.cd * 0.3)
+    local overkill = s.cd >= 45 and not s.boss and not s.nearBase and s.count <= 2 and (s.teamDps or 0) > 0 and (s.inRangeHp or 0) < s.teamDps * 0.25
+    if s.count > 0 and s.boss then
+        return true, "a boss is in range"
+    elseif s.count > 0 and s.nearBase then
+        return true, "emergency: enemy near base"
+    elseif not overkill and s.count >= math.max(3, math.floor(s.crowd * 0.3)) then
+        return true, s.count .. " enemies in range"
+    elseif not overkill and s.count >= 3 and s.held >= hold * 0.5 then
+        return true, string.format("%d enemies in range after %ds", s.count, math.floor(s.held))
+    elseif not overkill and s.count >= 1 and s.held >= hold then
+        return true, string.format("held %ds for a crowd, firing on %d", math.floor(s.held), s.count)
+    end
+    return false
 end
 
 function Units.aoe(atk, range)
@@ -20738,17 +21073,45 @@ function Modes.winP(item)
     return (outcomes.wins + p0 * 2) / (outcomes.runs + 2)
 end
 
-function Modes.minutes(item)
+function Modes.minutes(item, p)
     local outcomes = Modes.outcomes(item)
     local timed = tonumber(outcomes.timed) or 0
     local sim = Modes.sim(item)
     local estimate = sim and (sim.won or item.kind == "infinite") and not (sim.trust and not sim.trust.ok) and tonumber(sim.minutes)
     local value = (timed > 0 and outcomes.sec > 0) and (outcomes.sec / timed / 60) or (estimate and estimate > 0 and estimate) or Modes.PRIOR_MIN[item.kind] or 6
+    -- With both outcomes timed, the expected run is p × a win's length + (1 − p) × a loss's, where p is
+    -- today's chance to win (it can differ from the past mix of wins and losses).
+    local winTimed, lossTimed = tonumber(outcomes.winTimed) or 0, tonumber(outcomes.lossTimed) or 0
+    if winTimed > 0 and lossTimed > 0 and item.kind ~= "infinite" and p then
+        value = p * (outcomes.winSec / winTimed / 60) + (1 - p) * (outcomes.lossSec / lossTimed / 60)
+    end
     return value + Modes.OVERHEAD
 end
 
+-- What a loss pays on average (gems), once at least two losses are known.
+function Modes.lossValue(item)
+    local outcomes = Modes.outcomes(item)
+    local losses = tonumber(outcomes.lossTimed) or 0
+    if losses < 2 then
+        return 0
+    end
+    return math.max(0, (tonumber(outcomes.lossGems) or 0) / losses)
+end
+
+-- New modes get a try: a bonus that fades as runs come in (full at 0 runs, half at 2, a quarter at 6,
+-- none from 10), instead of the whole bonus for two runs and nothing after.
+function Modes.exploreMul(runs)
+    if runs >= 10 then
+        return 1
+    end
+    return 1 + Config.exploreBonus * 2 / (runs + 2)
+end
+
 function Modes.score(item)
-    local num, minutes = ((item.kind == "event" and item.rec.runs > 0) or item.kind == "infinite") and 1 or (item.kind == "dungeon" and item.p0) or Modes.winP(item), Modes.minutes(item)
+    local num = ((item.kind == "event" and item.rec.runs > 0) or item.kind == "infinite") and 1 or (item.kind == "dungeon" and item.p0) or Modes.winP(item)
+    local minutes = Modes.minutes(item, num)
+    -- Full cycle (2.21): p × win reward + (1 − p) × what a loss pays, over the expected run length.
+    local lossPay = num < 1 and Modes.lossValue(item) or 0
     local ok, res, res2 = pcall(Strategy.modeBonus, item)
     if ok and (res or 0) > 0 then
         item.teamBonus = res
@@ -20756,18 +21119,16 @@ function Modes.score(item)
             item.why = (item.why or "") .. " · " .. res2
         end
     end
-    local ratio = num * (item.value + (item.teamBonus or 0)) / minutes
+    local ratio = (num * (item.value + (item.teamBonus or 0)) + (1 - num) * lossPay) / minutes
     item.baseScore = ratio
     local ok, res, res2 = pcall(Training.valueFor, item)
     if ok and res > 0 then
-        local ratio2 = num * (item.value + res) / (minutes * res2)
+        local ratio2 = (num * (item.value + res) + (1 - num) * lossPay) / (minutes * res2)
         if ratio2 > ratio then
             ratio, item.train = ratio2, res
         end
     end
-    if Modes.outcomes(item).runs < 2 then
-        ratio = ratio * (1 + Config.exploreBonus)
-    end
+    ratio = ratio * Modes.exploreMul(tonumber(Modes.outcomes(item).runs) or 0)
     return ratio
 end
 
@@ -28072,6 +28433,7 @@ function FarmHub.equipTeam(uuids, label)
     for _, item in ipairs(Units.equipped()) do
         list [item.uuid] = true
     end
+    local teamBefore = TeamLog.names(Units.equipped())
     if not Brain.savedTeam then
         local list = {
         }
@@ -28138,6 +28500,7 @@ function FarmHub.equipTeam(uuids, label)
         end
     end
     Modes._sigAt = nil
+    pcall(TeamLog.write, teamBefore, TeamLog.names(Units.equipped()), label, flag)
     if flag then
         App.log(1, "TEAM", "equipped " .. # uuids .. " units — " .. tostring(label))
     else
@@ -28951,6 +29314,7 @@ function Farming.finish(why)
     Farming.clearOverlay()
     Farming.hold(Farming.title(run) .. " finished")
     App.log(1, "FARM", string.format("%s finished: %d task%s done", Farming.title(run), # run.tasks, # run.tasks == 1 and "" or "s"))
+    pcall(Discord.alert, "Farming finished", string.format("%s: %d task%s done · no new runs until you start again", Farming.title(run), # run.tasks, # run.tasks == 1 and "" or "s"))
     Farming.sync()
 end
 
@@ -28960,6 +29324,7 @@ function Farming.fail(why)
     Farming.clearOverlay()
     Farming.hold("farming paused: " .. why)
     App.log(1, "FARM", string.format("%s paused: %s · press Retry to go on from %d/%d", Farming.title(run), why, run.done, run.tasks [run.index].runs))
+    pcall(Discord.alert, "Farming paused", string.format("%s paused: %s · press Retry to go on from %d/%d", Farming.title(run), tostring(why), run.done, run.tasks [run.index].runs))
     App.saveNow()
     Farming.sync()
 end
@@ -29514,24 +29879,58 @@ function FarmHub.run()
     end
 end
 
-function Economy.upgradeGain(liveDps, rows, level, cost, costMul, nextDps)
+Economy.REACH_CAP = 2
+
+-- How much more road a wider circle reaches. With a spot known, reachOf(range) measures it;
+-- otherwise the stretch of road inside a circle grows about in step with its radius.
+function Economy.reachRatio(curRange, newRange, reachOf)
+    curRange = math.max(1, tonumber(curRange) or 1)
+    newRange = tonumber(newRange) or curRange
+    if newRange <= curRange then
+        return 1
+    end
+    if reachOf then
+        local ok, before = pcall(reachOf, curRange)
+        local ok2, after = pcall(reachOf, newRange)
+        if ok and ok2 and tonumber(before) and tonumber(after) then
+            if before <= 0 then
+                return after > 0 and Economy.REACH_CAP or 1
+            end
+            return Utils.clamp(after / before, 1, Economy.REACH_CAP)
+        end
+    end
+    return math.min(Economy.REACH_CAP, newRange / curRange)
+end
+
+-- Damage a level puts out, per second of a target in reach: hits per second times targets per hit.
+function Economy.rowRate(row)
+    if not (row and row.cd and row.cd > 0) then
+        return 0
+    end
+    return row.damage / row.cd * math.max(0.3, Units.aoe(row.atk, row.range) or 0.3)
+end
+
+-- The gain of one upgrade, in the damage per second it adds. A unit's power is its rate times the
+-- road it reaches, so a wider circle multiplies the whole unit, not only the added damage: an
+-- upgrade that only widens the circle is worth something too. One and two steps ahead use the same
+-- rate (area of effect included), so a weak step before a strong one is judged on equal terms.
+function Economy.upgradeGain(liveDps, rows, level, cost, costMul, nextDps, reachOf)
     local cur, nxt = rows [level], rows [level + 1]
-    local curRate = (cur and cur.cd and cur.cd > 0 and cur.damage / cur.cd or 0)
-    local curAoe = math.max(0.3, cur and Units.aoe(cur.atk, cur.range) or 0.3)
-    local nextRate = (nxt and nxt.cd and nxt.cd > 0 and nxt.damage / nxt.cd or 0) * (nxt and Units.aoe(nxt.atk, nxt.range) or 1) / curAoe
-    local gain = curRate > 0 and liveDps * (nextRate / curRate - 1) or (nextDps or 0)
+    local curRate = Economy.rowRate(cur)
+    local curRange = cur and cur.range or 1
+    local function powerAt(row)
+        return Economy.rowRate(row) / curRate * Economy.reachRatio(curRange, row and row.range or curRange, reachOf)
+    end
+    local gain = curRate > 0 and liveDps * (powerAt(nxt) - 1) or (nextDps or 0)
     local after = rows [level + 2]
-    if after and level + 1 < rows.max and after.cd and after.cd > 0 and nxt and nxt.cd and nxt.cd > 0 and curRate > 0 then
-        local twoStepGain = liveDps * ((after.damage / after.cd) / curRate - 1)
+    if after and level + 1 < rows.max and curRate > 0 and Economy.rowRate(nxt) > 0 and Economy.rowRate(after) > 0 then
+        local twoStepGain = liveDps * (powerAt(after) - 1)
         local twoStepCost = (cost or 0) + (after.cost or 0) * (costMul or 1)
         if cost and cost > 0 and twoStepCost > 0 and (twoStepGain / twoStepCost) > (gain / cost) then
             gain = gain + (twoStepGain / twoStepCost * cost - gain) * 0.5
         end
     end
-    local curRange = math.max(1, cur and cur.range or 1)
-    local nxtRange = nxt and nxt.range or curRange
-    local rangeBonus = nxtRange > curRange and (1 + ((nxtRange - curRange) / curRange)) or 1
-    return math.max(0, gain) * rangeBonus
+    return math.max(0, gain)
 end
 
 function Economy.dpsFor(arg1, reward)
@@ -29646,6 +30045,27 @@ function Economy.keepsUp(ctx, options, cost, addedDps, farmGain)
             killRate = killRate + Economy.dpsFor(options, (wave.reward or 0) + farmNow) * eff * (0.85 ^ i)
         end
     end
+    -- Flying enemies are taken only by the units that reach the air (ctx.airShare of the damage), so
+    -- they get their own check: enough damage overall does not help if it cannot hit them. Future
+    -- buys are assumed to reach the air in the same share as the team does now.
+    local airShare = tonumber(ctx.airShare)
+    if airShare and airShare < 0.999 then
+        local airRate = ((ctx.teamDps or 0) * (ctx.shieldK or 1) + (addedDps or 0) * eff + Economy.dpsFor(options, math.max(0, money)) * eff) * airShare
+        local airAlive = tonumber(ctx.airAlive) or 0
+        for i, wave in ipairs(coming) do
+            local airHp = tonumber(wave.airHp) or 0
+            if airHp > 0 or airAlive > 0 then
+                airAlive = math.max(0, airAlive + airHp - airRate * ctx.waveSec)
+                local canKill = airRate * roadSec
+                if airAlive > canKill then
+                    return false, i, canKill / math.max(1, airAlive), "air"
+                end
+            end
+            if i < # coming then
+                airRate = airRate + Economy.dpsFor(options, (wave.reward or 0) + farmNow) * eff * (0.85 ^ i) * airShare
+            end
+        end
+    end
     return true
 end
 
@@ -29695,6 +30115,120 @@ function Economy.fusionFocus(options, ctx, belongs, remaining)
     return focus, "the defense holds"
 end
 
+-- ===== Farm order (2.23) =====
+-- Which farm buy comes next is found by playing short buy orders forward wave by wave: up to FARM_STEPS
+-- buys from the FARM_PICK fastest-paying farms, each bought as soon as the yen is there (saving for it
+-- otherwise), with the yen each wave pays and what the farms bought so far earn; the farms left out
+-- follow in payback order. An order is worth the yen it ends the horizon with, plus what its farms keep
+-- earning for the waves after it, so it can differ from "the most yen right after this buy". The first buy
+-- of the best order is made (or saved for); when no order beats buying nothing, no farm. This answers
+-- both "buy the farm I can afford now or save for the better one" and "three small upgrades beat one
+-- big one for the same yen", which picking the single fastest payback each time can get wrong.
+Economy.FARM_PICK, Economy.FARM_STEPS, Economy.FARM_HORIZON = 6, 3, 12
+
+-- A buy's name for ties: unit and level, never where the option sits in the list, so the same team in
+-- another order buys the same (2.23).
+function Economy.optKey(option)
+    local entry = option.e or (option.c and option.c.e)
+    return tostring(entry and entry.id or option.what or "") .. (option.place and "+" or ("^" .. tostring(option.c and option.c.lvl or option.level or "")))
+end
+
+-- Yen the i-th wave from now pays, without farms (the forecast for the next waves, then its last one).
+function Economy.farmPay(ctx, i)
+    local coming = ctx.coming
+    local item = type(coming) == "table" and (coming [i] or coming [# coming]) or nil
+    local reward = item and tonumber(item.reward)
+    if reward then
+        return math.max(0, reward)
+    end
+    return math.max(0, (tonumber(ctx.incomeRate) or 0) * (tonumber(ctx.waveSec) or 20) - (tonumber(ctx.farmNow) or 0))
+end
+
+-- farms: options that pass the payback rule. left: waves the farms can still earn for.
+-- Returns the first buy of the best order, the yen it adds over buying no farm, and the order itself.
+function Economy.farmPlan(farms, ctx, left)
+    left = math.floor(tonumber(left) or 0)
+    local horizon = math.min(Economy.FARM_HORIZON, left)
+    if horizon < 1 or # farms == 0 then
+        return nil
+    end
+    local pick = {
+    }
+    for _, option in ipairs(farms) do
+        table.insert(pick, option)
+    end
+    local key = Economy.optKey
+    table.sort(pick, function(a, b)
+        if a.payback ~= b.payback then
+            return a.payback < b.payback
+        end
+        if a.cost ~= b.cost then
+            return a.cost < b.cost
+        end
+        return key(a) < key(b)
+    end)
+    while # pick > Economy.FARM_PICK do
+        table.remove(pick)
+    end
+    local pays = {
+    }
+    for i = 1, horizon do
+        pays [i] = Economy.farmPay(ctx, i)
+    end
+    local after = math.max(0, left - horizon)
+    local farmNow = tonumber(ctx.farmNow) or 0
+    -- An order is played out, then the farms it left out follow it, fastest payback first, so every
+    -- order is judged with the same later buys (a short order would otherwise look worse only for
+    -- stopping sooner). follow = false plays the order alone (the "no farm" baseline).
+    local function value(order, used, follow)
+        local seq = {
+        }
+        for _, option in ipairs(order) do
+            table.insert(seq, option)
+        end
+        if follow then
+            for _, option in ipairs(pick) do
+                if not used [option] then
+                    table.insert(seq, option)
+                end
+            end
+        end
+        local money, farm, k = tonumber(ctx.money) or 0, farmNow, 1
+        for wave = 1, horizon do
+            while seq [k] and seq [k].cost <= money do
+                money, farm, k = money - seq [k].cost, farm + seq [k].gain, k + 1
+            end
+            money = money + pays [wave] + farm
+        end
+        return money + (farm - farmNow) * after
+    end
+    local order, used = {
+    }, {
+    }
+    local base = value(order, used, false)
+    local best, bestValue, bestOrder = nil, base, nil
+    local function walk(depth)
+        if depth > 0 then
+            local v = value(order, used, true)
+            if v > bestValue + 1e-6 then
+                best, bestValue, bestOrder = order [1], v, table.clone(order)
+            end
+        end
+        if depth >= Economy.FARM_STEPS then
+            return
+        end
+        for _, option in ipairs(pick) do
+            if not used [option] then
+                used [option], order [depth + 1] = true, option
+                walk(depth + 1)
+                used [option], order [depth + 1] = nil, nil
+            end
+        end
+    end
+    walk(0)
+    return best, bestValue - base, bestOrder
+end
+
 function Economy.decide(options, ctx)
     local cover = Utils.clamp(ctx.cover or 0.6, 0.1, 1)
     local clearLimit = math.max(Config.clearSec, 0.7 * (ctx.roadSec or 50) * cover)
@@ -29703,22 +30237,41 @@ function Economy.decide(options, ctx)
     local safe = ctx.attackers > 0 and ctx.pressure < math.min(Config.safeReach, cover * 0.75) and not ctx.piling and not slowClear
     local danger = ctx.pressure >= math.min(Config.dangerReach, cover * 0.9) or (ctx.piling and ctx.enemies >= 18)
     local bestFarm, bestDamage, bestDirect
+    -- Waves a farm can still earn for: the match's own count, or in Infinite what past runs say (2.23).
+    local farmLeft = tonumber(ctx.farmLeft) or ctx.left
+    local farmList = {
+    }
     for _, option in ipairs(options) do
         if option.farm then
             if Config.farmUnits and option.gain and option.gain > 0 then
                 option.payback = option.cost / math.max(0.0001, option.gain)
-                if ctx.left - 1 >= option.payback + Config.farmSpare and (not bestFarm or option.payback < bestFarm.payback) then
-                    bestFarm = option
+                if farmLeft - 1 >= option.payback + Config.farmSpare then
+                    table.insert(farmList, option)
+                    if not bestFarm or option.payback < bestFarm.payback then
+                        bestFarm = option
+                    end
                 end
             end
         else
             option.ratio = (tonumber(option.gain) or 0) / math.max(1, tonumber(option.cost) or 0)
-            if not bestDamage or option.ratio > bestDamage.ratio then
+            if not bestDamage or option.ratio > bestDamage.ratio or (option.ratio == bestDamage.ratio and Economy.optKey(option) < Economy.optKey(bestDamage)) then
                 bestDamage = option
             end
-            if not option.support and (not bestDirect or option.ratio > bestDirect.ratio) then
+            if not option.support and (not bestDirect or option.ratio > bestDirect.ratio or (option.ratio == bestDirect.ratio and Economy.optKey(option) < Economy.optKey(bestDirect))) then
                 bestDirect = option
             end
+        end
+    end
+    -- The farm to buy (or save for) next: the first of the best buy order, not just the fastest payback.
+    local farmOrder
+    if # farmList > 1 then
+        local planned, planGain, order = Economy.farmPlan(farmList, ctx, farmLeft)
+        bestFarm = planned
+        if planned then
+            farmOrder = {
+                gain = planGain,
+                order = order
+            }
         end
     end
     if ctx.leak and ctx.attackers > 0 then
@@ -29740,13 +30293,17 @@ function Economy.decide(options, ctx)
         end
     end
     local farmNeeded = ctx.future < ctx.wantLeft * 1.1
-    local farmKeepsUp, shortWave, shortCover = true, nil, nil
+    local farmKeepsUp, shortWave, shortCover, shortKind = true, nil, nil, nil
     if bestFarm then
-        farmKeepsUp, shortWave, shortCover = Economy.keepsUp(ctx, options, bestFarm.cost, 0, bestFarm.gain)
+        farmKeepsUp, shortWave, shortCover, shortKind = Economy.keepsUp(ctx, options, bestFarm.cost, 0, bestFarm.gain)
     end
-    local fallsBehind = ctx.coming and not Economy.keepsUp(ctx, options, 0, 0, 0)
+    local behindOk, _, _, behindKind = true, nil, nil, nil
+    if ctx.coming then
+        behindOk, _, _, behindKind = Economy.keepsUp(ctx, options, 0, 0, 0)
+    end
+    local fallsBehind = ctx.coming and not behindOk
     local cheapFarm = false
-    if Match.random and bestFarm and not danger and ctx.attackers >= 2 and bestFarm.payback <= ctx.left / 3 then
+    if Match.random and bestFarm and not danger and farmKeepsUp and ctx.attackers >= 2 and bestFarm.payback <= farmLeft / 3 then
         local farmCount = 0
         for _, unit in ipairs(Match.mine or {
         }) do
@@ -29808,20 +30365,23 @@ function Economy.decide(options, ctx)
         end
     elseif bestFarm and safe and farmNeeded and not danger and farmKeepsUp then
         choice = bestFarm
-        why = string.format("farm pays back in %.1f waves (%d left) and the defense still keeps up with the next %d waves", bestFarm.payback, ctx.left, ctx.coming and # ctx.coming or 0)
+        why = string.format("farm pays back in %.1f waves (%d left) and the defense still keeps up with the next %d waves", bestFarm.payback, farmLeft, ctx.coming and # ctx.coming or 0)
+        if farmOrder then
+            why = why .. string.format(" · first of the best farm order (+¥%s by the end over buying no farm)", Utils.fmt(math.floor(farmOrder.gain)))
+        end
     elseif cheapFarm then
         choice = bestFarm
-        why = string.format("farm pays back in %.1f waves (%d left) and nothing is close to the base", bestFarm.payback, ctx.left)
+        why = string.format("farm pays back in %.1f waves (%d left) and nothing is close to the base", bestFarm.payback, farmLeft)
     elseif bestDamage then
         choice = bestDamage
         if buffLater then
             why = "the defense is weak: direct damage first, the buffer after"
         elseif fallsBehind then
-            why = string.format("the next waves bring more HP than your units can kill: damage now")
+            why = behindKind == "air" and "the next waves bring more flying HP than your units that hit the air can kill: damage now" or "the next waves bring more HP than your units can kill: damage now"
         elseif danger then
             why = string.format("enemies reach %d%% of the road (your units cover %d%%): damage now", math.floor(ctx.pressure * 100), math.floor(cover * 100))
         elseif bestFarm and not farmKeepsUp then
-            why = string.format("defense first: after that farm buy, wave +%d would only be %d%% covered", shortWave or 1, math.floor((shortCover or 0) * 100))
+            why = string.format("defense first: after that farm buy, wave +%d would only be %d%% covered%s", shortWave or 1, math.floor((shortCover or 0) * 100), shortKind == "air" and " (flying enemies, only units that hit the air count)" or "")
         elseif bestFarm and slowClear then
             why = string.format("defense first: killing what's alive takes %ds (farm only under %ds)", math.min(999, math.floor(ctx.clearSec)), math.floor(clearLimit))
         elseif bestFarm and ctx.piling then
@@ -29924,21 +30484,36 @@ function Simulator.cal(calKey)
     return value
 end
 
-function Simulator.effFor(arg1)
-    local count, count2 = 0, 0
+-- How much of the model's damage really lands, in three levels: all modes → this map → this mode.
+-- Each level leans on the one above until it has its own runs (3 runs weigh as much as the level
+-- above), so a new mode on a known map starts from that map, not from the average of all maps.
+-- Per unit there is one more correction (Units.nudge, from each unit's share of the real damage).
+Simulator.EFF_PRIOR_RUNS = 3
+
+function Simulator.effFor(arg1, map)
+    local count, count2, mapSum, mapN = 0, 0, 0, 0
+    local mapName = map and tostring(map):match("^(.-)~%d+$") or (map and tostring(map))
     for _, value in pairs(Brain.simCal) do
-        local eff, n = tonumber(value.eff), tonumber(value.n) or 0
+        local eff, n = tonumber(type(value) == "table" and value.eff), type(value) == "table" and (tonumber(type(value.nf) == "table" and value.nf.eff) or tonumber(value.n)) or 0
         if eff and n > 0 then
             count = count + eff * n
             count2 = count2 + n
+            local ld = type(value.ld) == "table" and value.ld
+            if mapName and ld and tostring(ld.map) == mapName and value ~= arg1 then
+                mapSum, mapN = mapSum + eff * n, mapN + n
+            end
         end
     end
     local ratio = count2 > 0 and count / count2 or Simulator.PRIOR.eff
-    local eff, n = tonumber(arg1 and arg1.eff), tonumber(arg1 and arg1.n) or 0
+    local prior = Simulator.EFF_PRIOR_RUNS
+    if mapN > 0 then
+        ratio = (mapSum + ratio * prior) / (mapN + prior)
+    end
+    local eff, n = tonumber(arg1 and arg1.eff), tonumber(arg1 and type(arg1.nf) == "table" and arg1.nf.eff) or tonumber(arg1 and arg1.n) or 0
     if not eff then
         return ratio
     end
-    return (eff * n + ratio * 3) / (n + 3)
+    return (eff * n + ratio * prior) / (n + prior)
 end
 Simulator.LD_FIELDS = {
     "id",
@@ -30139,7 +30714,7 @@ function Simulator.info(slim, key, levelFor, mod, rotation)
         autoskip = Simulator.autoskip(),
         voteAt = tonumber(value.voteAt) or waveTimer / 2,
         votePer = tonumber(value.votePer) or Simulator.PRIOR.votePer,
-        eff = Simulator.effFor(value),
+        eff = Simulator.effFor(value, slim.map),
         voteWave = type(value.voteWave) == "table" and value.voteWave or nil,
         spawnGap = tonumber(value.spawnGap) or Simulator.PRIOR.spawnGap,
         baseHp = tonumber(value.baseHp) or (wave and tonumber(wave.base_health)) or (wave2 and tonumber(wave2.base_health)) or Simulator.PRIOR.baseHp,
@@ -30595,6 +31170,25 @@ function Simulator.mapWalk(map)
     return walk
 end
 
+Simulator._maskN = setmetatable({
+}, {
+    __mode = "k"
+})
+
+function Simulator.maskReach(mask)
+    local n = Simulator._maskN [mask]
+    if not n then
+        n = 0
+        for i = 1, Simulator.BINS do
+            if mask [i] then
+                n = n + 1
+            end
+        end
+        Simulator._maskN [mask] = n
+    end
+    return n
+end
+
 function Simulator.mask(map, range)
     local value = math.max(5, math.min(60, math.floor((range or 10) / 5 + 0.5) * 5))
     local text = tostring(map) .. ":" .. value
@@ -30923,18 +31517,24 @@ function Simulator.runRaw(arg1, arg2, arg3)
     local eff = arg1.eff or Simulator.PRIOR.eff
     local list11 = {
     }
+    local airHpOf = {
+    }
     local function helper3(arg12)
         if arg12 > arg1.total then
             return nil
         end
         if not list11 [arg12] then
-            local count = 0
+            local count, air = 0, 0
             for _, value in ipairs((Simulator.wave(arg1, arg12))) do
                 count = count + value.hp + (value.bar or 0)
+                if value.fly then
+                    air = air + value.hp + (value.bar or 0)
+                end
             end
             list11 [arg12] = count * hpMul
+            airHpOf [arg12] = air * hpMul
         end
-        return list11 [arg12]
+        return list11 [arg12], airHpOf [arg12]
     end
     local bins
     if arg3.train then
@@ -30957,6 +31557,17 @@ function Simulator.runRaw(arg1, arg2, arg3)
     }
     local count8, count9, count10 = 0, 0, 0
     local count11 = 0
+    -- Road a tower would reach at a given (unscaled) range, in the simulator's own road bins.
+    local function simReachOf(item, unitId)
+        local id = unitId or (item.e and item.e.id)
+        local spot = arg3.layout and not item.later and id and arg3.layout.spots [id]
+        local summoner = id and Units.SUMMONER [id]
+        local mul = arg1.rangeScale * (summoner and summoner.reach * (1 + Units.BLESS.range * math.min(Units.BLESS.cap, count11)) or 1)
+        return function(range)
+            local r = range * mul
+            return Simulator.maskReach(spot and Simulator.spotMask(arg3.layout, spot, r) or Simulator.mask(arg1.map, r))
+        end
+    end
     local function helper4()
         return 1 + Units.BLESS.dmg * math.min(Units.BLESS.cap, count11)
     end
@@ -31109,6 +31720,13 @@ function Simulator.runRaw(arg1, arg2, arg3)
         local row = arg12.e.rows [math.min(arg12.lvl, arg12.e.rows.max)]
         local attackInfo = Units.attackInfo(row.atk, row.range)
         arg12.aoe, arg12.hits, arg12.bleed = attackInfo.n, attackInfo.hits, attackInfo.bleed
+        arg12.shapeMul = nil
+        local shapeAt = spot and arg3.layout.shapeAt and arg3.layout.shapeAt [arg12.e.id]
+        local shapeF = shapeAt and shapeAt [spot]
+        if shapeF and attackInfo.n > 1.05 then
+            local aoeHere = 1 + (attackInfo.n - 1) * shapeF
+            arg12.shapeMul, arg12.aoe = aoeHere / attackInfo.n, aoeHere
+        end
         arg12.stun, arg12.slowP, arg12.slowT, arg12.ccCd = attackInfo.stun, attackInfo.slowPct, attackInfo.slowTime, attackInfo.ccCd or 8
         local types, types2 = Units.types(arg12.e.id)
         arg12.base = types2
@@ -31441,6 +32059,9 @@ function Simulator.runRaw(arg1, arg2, arg3)
     end
     local list13
     local function helper17(arg12, arg2)
+        -- arg3.dpsErr: the real damage is this share of the model's (a stress test of the model's
+        -- error; the buying inside the run still plans with the model's numbers).
+        arg2 = arg2 * (arg3.dpsErr or 1) * (arg12.shapeMul or 1)
         local eff2 = (count4 >= arg1.total and # list2 <= 2) and math.max(eff, 0.95) or eff
         if list2 [1] and not arg3.oldBuy then
             local ratio = arg2 * math.max(0.3, arg12.cd) / math.max(1, arg12.aoe)
@@ -31456,7 +32077,13 @@ function Simulator.runRaw(arg1, arg2, arg3)
         end
         local flag2 = (arg12.stun > 0 or arg12.slowT > 0) and count3 >= (arg12.ccAt or 0) and not arg1.noCC
         local flag3 = arg12.base == "magic"
+        local maxTargets = math.ceil(arg12.aoe)
         for _, item in ipairs(arg12.air and list13 or list2) do
+            -- A hit reaches at most ceil(aoe) enemies: the next one in line gets nothing, no stun or slow,
+            -- no bleed, no shield chip (before 2.20 it still got those, with zero damage).
+            if count >= maxTargets or (count > 0 and arg22 <= 0 and not ((item.sh or 0) > 0)) then
+                break
+            end
             if item.hp > 0 and not (item.soar and not arg12.hill) and helper(arg12, item, math.min(Simulator.BINS, math.floor(item.p * Simulator.BINS) + 1)) and not (arg1.shroud and item.p < arg1.shroud) then
                 local flag4 = item.fly and not arg12.air
                 if arg12.bleed then
@@ -31502,9 +32129,6 @@ function Simulator.runRaw(arg1, arg2, arg3)
                     item.tr = true
                 end
                 count = count + 1
-                if count > math.ceil(arg12.aoe) or (count > 1 and arg22 <= 0) then
-                    break
-                end
             end
         end
         if flag and count > 0 then
@@ -31523,23 +32147,35 @@ function Simulator.runRaw(arg1, arg2, arg3)
             local actId = act and (act.globalCd and item.actId or item)
             if act and count3 >= (list12 [actId] or 0) then
                 item.actReady = item.actReady or count3
-                local count, flag = 0, false
+                local count, flag, nearBase, inRangeHp = 0, false, false, 0
                 for _, item2 in ipairs(list2) do
                     if act.wholeMap or helper(item, item2, math.min(Simulator.BINS, math.floor(item2.p * Simulator.BINS) + 1)) then
                         count = count + 1
+                        inRangeHp = inRangeHp + math.max(0, item2.hp) + (item2.bar or 0)
                         if item2.boss then
                             flag = true
                         end
+                        if item2.p >= 0.82 then
+                            nearBase = true
+                        end
                     end
                 end
-                local value = math.min((tonumber(Config.abilityHold) or 20) * math.max(1, item.actCd / 60), item.actCd * 0.3)
                 local value2
                 if act.baseSafe then
                     value2 = arg1 >= 0.98
                 elseif act.allyCd then
                     value2 = # list2 > 0
                 else
-                    value2 = (count > 0 and flag) or count >= math.max(3, math.floor(# list2 * 0.3)) or (count >= 3 and count3 - item.actReady >= value * 0.5) or (count >= 1 and count3 - item.actReady >= value)
+                    value2 = Units.castDecision({
+                        count = count,
+                        boss = flag,
+                        nearBase = nearBase,
+                        crowd = # list2,
+                        held = count3 - item.actReady,
+                        cd = item.actCd,
+                        inRangeHp = inRangeHp,
+                        teamDps = count7 * eff
+                    })
                 end
                 if value2 then
                     list12 [actId], item.actReady = count3 + item.actCd, nil
@@ -31662,7 +32298,96 @@ function Simulator.runRaw(arg1, arg2, arg3)
     end
 
     local count8, huge, flag5 = 0, math.huge, false
+    -- Start from a match as it stands (2.22, opts.start): the waves already sent, the yen, the base, the
+    -- units on the field with their levels, and the enemies on the road (this wave's own enemy kinds, with
+    -- the health and progress seen in the match). Buying goes on by the same rule as in a whole run.
+    local startFrom = arg3.start
+    if startFrom then
+        count4 = math.max(0, math.min(arg1.total, math.floor(tonumber(startFrom.wave) or 0)))
+        start = tonumber(startFrom.money) or start
+        baseHp = baseHp * Utils.clamp(tonumber(startFrom.baseFrac) or 1, 0.01, 1)
+        for _, tower in ipairs(startFrom.towers or {
+        }) do
+            if tower.e and tower.e.rows then
+                local info = {
+                    e = tower.e,
+                    lvl = math.max(0, math.min(math.floor(tonumber(tower.lvl) or 0), tower.e.rows.max)),
+                    spent = 0
+                }
+                for _, item in ipairs(list3) do
+                    if item.e == info.e then
+                        info.later = true
+                        break
+                    end
+                end
+                helper5(info)
+                table.insert(list3, info)
+                stats.placedWave [info.e.id] = stats.placedWave [info.e.id] or 0
+            end
+        end
+        local kinds = count4 > 0 and Simulator.wave(arg1, count4) or {
+        }
+        for i, seen in ipairs(startFrom.alive or {
+        }) do
+            local kind = kinds [(i - 1) % math.max(1, # kinds) + 1]
+            if kind then
+                local enemy = table.clone(kind)
+                enemy.hp = (tonumber(seen.hp) or kind.hp) * hpMul
+                enemy.max = math.max(enemy.hp, (tonumber(kind.max) or kind.hp) * hpMul)
+                enemy.p = Utils.clamp(tonumber(seen.p) or 0, 0, 0.999)
+                enemy.at = 0
+                if seen.fly then
+                    enemy.fly = true
+                    flag4 = true
+                end
+                if laneListCount >= 2 then
+                    count2 = count2 + 1
+                    enemy.lane = laneList [(count2 - 1) % laneListCount + 1]
+                end
+                table.insert(list2, enemy)
+            end
+        end
+        flag = false
+        num = tonumber(startFrom.nextIn) or math.max(3, tonumber(arg1.waveTimer) or 20)
+        huge = num
+        helper8()
+        count7 = 0
+        for _, item in ipairs(list3) do
+            count7 = count7 + helper9(item)
+        end
+    end
+    -- A run cut at a wave (opts.horizon): it ends when that wave is cleared or the next one is due, with
+    -- what is left of the base (baseLeft, a share of its full health) and the enemy health still standing.
+    local function horizonResult()
+        local alive, team = 0, 0
+        for _, item in ipairs(list2) do
+            alive = alive + math.max(0, item.hp)
+        end
+        for _, item in ipairs(list) do
+            alive = alive + math.max(0, item.hp)
+        end
+        for _, item in ipairs(list3) do
+            team = team + helper9(item)
+        end
+        return finish({
+            won = true,
+            horizon = true,
+            wave = count4,
+            t = count3,
+            money = start,
+            baseLeft = baseHp / math.max(1e-9, arg1.baseHp),
+            alive = alive,
+            teamDps = team,
+            aliveAt = list5,
+            dpsAt = list8,
+            spentAt = list9,
+            tk = count
+        })
+    end
     while count3 < 3600 do
+        if arg3.horizon and count4 >= arg3.horizon and (count3 >= num or (# list == 0 and # list2 == 0)) then
+            return horizonResult()
+        end
         if not flag and count4 > 0 and ((# list == 0 and # list2 == 0) or (arg1.autoskip and count3 >= huge)) then
             helper7()
             num = math.min(num, count3 + arg1.skipDelay)
@@ -31748,7 +32473,7 @@ function Simulator.runRaw(arg1, arg2, arg3)
                 speed = speed * (1 - math.max(slowP, item.galeSlow or 0))
             end
             if item.p < 1 then
-                item.p = math.min(1, item.p + arg1.walk * speed * dt)
+                item.p = math.min(1, item.p + arg1.walk * speed * dt * (arg3.speedErr or 1))
             elseif count3 >= count10 then
                 baseHp = baseHp - arg1.baseRel * item.max * dt
             end
@@ -32093,6 +32818,18 @@ function Simulator.runRaw(arg1, arg2, arg3)
                     pathLead = nil
                 end
             end
+            -- Attackers on the field are counted before the options (2.23): counted along the way, the first
+            -- units of the team saw fewer of them than the last, and what was bought hung on the team's order.
+            for _, value in ipairs(purchasing) do
+                if not value.farm then
+                    for _, tower in ipairs(list3) do
+                        if tower.e == value then
+                            count10 = count10 + 1
+                            break
+                        end
+                    end
+                end
+            end
             for _, value in ipairs(purchasing) do
                 local list2 = {
                 }
@@ -32101,9 +32838,6 @@ function Simulator.runRaw(arg1, arg2, arg3)
                     if item.e == value then
                         table.insert(list2, item)
                     end
-                end
-                if not value.farm and # list2 > 0 then
-                    count10 = count10 + 1
                 end
                 if value2 then
                     list2 = nil
@@ -32126,7 +32860,7 @@ function Simulator.runRaw(arg1, arg2, arg3)
                                 c = item
                             })
                         else
-                            local shieldGain = count6 > 0 and not arg3.oldBuy and Economy.shieldGain(item.dpsAll or item.dps, value.rows [item.lvl], helper2(value, item.lvl + 1), row, count6, num3, cd, eff) or Economy.upgradeGain(item.dpsAll or item.dps, value.rows, item.lvl, cost, arg1.costScale, helper2(value, item.lvl + 1))
+                            local shieldGain = count6 > 0 and not arg3.oldBuy and Economy.shieldGain(item.dpsAll or item.dps, value.rows [item.lvl], helper2(value, item.lvl + 1), row, count6, num3, cd, eff) or Economy.upgradeGain(item.dpsAll or item.dps, value.rows, item.lvl, cost, arg1.costScale, helper2(value, item.lvl + 1), simReachOf(item, value.id))
                             local stepGain = shieldGain * (item.train and Training.BONUS or 1) * helper10(value.id, item.lvl) * helper14(item) * helper16(item) + helper(value, item.lvl, false)
                             if pathFloor and pathLead [value] == item and item.lvl < fusion.upgrade then
                                 stepGain = math.max(stepGain, pathFloor * cost)
@@ -32249,15 +32983,29 @@ function Simulator.runRaw(arg1, arg2, arg3)
             end
             local list4 = {
             }
+            local anyAir = false
             for i = 1, 5 do
-                local value = helper3(count4 + i)
+                local value, airHp = helper3(count4 + i)
                 if not value then
                     break
                 end
+                anyAir = anyAir or (airHp or 0) > 0
                 table.insert(list4, {
                     hp = value,
+                    airHp = airHp,
                     reward = list10 [count4 + i] or 0
                 })
+            end
+            local airShare
+            if anyAir then
+                local all, air = 0, 0
+                for _, item in ipairs(list3) do
+                    all = all + (item.dps or 0)
+                    if item.air then
+                        air = air + (item.dps or 0)
+                    end
+                end
+                airShare = all > 0 and air / all or 0
             end
             local num = arg3.oldBuy and 1 or helper11()
             local ctx = {
@@ -32271,6 +33019,7 @@ function Simulator.runRaw(arg1, arg2, arg3)
                 future = start2,
                 wantLeft = count8,
                 coming = list4,
+                airShare = airShare,
                 waveSec = arg1.waveSec,
                 eff = eff,
                 teamDps = count7 * eff,
@@ -32658,6 +33407,48 @@ function Simulator.pool(mod, level)
             table.insert(list, list4 [i].u)
         end
     end
+    -- Tier list first: the units real runs rate highest lead the search; tier C stops taking its time
+    -- when the collection is big (it stays in the reserve the search looks at last).
+    local ranks = level and level.key and Simulator.tierRanks(level.key) or {
+    }
+    if # ranks > 0 then
+        local byId = {
+        }
+        for _, item in ipairs(list3) do
+            byId [item.u.unit_id] = item.u
+        end
+        local front, cut, inFront = {
+        }, {
+        }, {
+        }
+        for _, item in ipairs(ranks) do
+            if item.fusion then
+                if item.tier == "S" or item.tier == "A" then
+                    for _, parent in ipairs(Units.FUSION.parents) do
+                        local entry = fusionParents [parent]
+                        if entry and not inFront [entry.u] then
+                            table.insert(front, entry.u)
+                            inFront [entry.u] = true
+                        end
+                    end
+                end
+            elseif item.tier == "C" then
+                cut [item.id] = true
+            elseif byId [item.id] and # front < Simulator.TIER.POOL then
+                table.insert(front, byId [item.id])
+                inFront [byId [item.id]] = true
+            end
+        end
+        local big = # list3 > 10
+        for _, unit in ipairs(list) do
+            -- farms and buffers are judged by whole lineups (farm rule, buffer types), never cut here
+            local plain = not Units.isFarm(unit.unit_id) and not Units.allyBuff(unit.unit_id) and not fusionParents [unit.unit_id]
+            if not inFront [unit] and not (big and plain and cut [unit.unit_id]) then
+                table.insert(front, unit)
+            end
+        end
+        list = front
+    end
     local list2, list4 = {
     }, {
     }
@@ -32676,6 +33467,272 @@ function Simulator.pool(mod, level)
         end
     end
     return list4
+end
+
+-- ===== Tier list: what each of your units is worth here, from real simulator runs =====
+-- The team search has a time budget, and with a big collection it can only look closely at about ten
+-- units, picked by a formula (damage × range × copies at max level) that misses cheap starters, area
+-- damage on this map's road, and so on. The tier list measures every unit you own in the simulator,
+-- a few per plan, and remembers it per mode: the strongest go to the front of the search, the weakest
+-- (tier C) stop taking its time. The measuring adds up to a quarter to the plan's time; the search keeps
+-- its own budget. Farms and buffers get no tier: what they are worth shows only in a whole lineup
+-- (payback, matching damage types), which the search compares anyway. How a unit is measured: your equipped team without one attacker
+-- (the weakest) is the base; the unit joins it; the gain in the simulator's score against enemies at
+-- your team's breaking point is its value. A unit of your team is measured the same way, with itself
+-- taken out to make the base.
+Simulator.TIER = {
+    FUSION_KEY = "fusion:pair",
+    SHARE = 0.25,
+    MAX_AGE = 3 * 86400,
+    POOL = 6
+}
+
+function Simulator.tierBook(key, create)
+    if type(Brain.tiers) ~= "table" then
+        Brain.tiers = {
+        }
+    end
+    local book = Brain.tiers [key]
+    if type(book) ~= "table" then
+        if not create then
+            return nil
+        end
+        book = {
+            units = {
+            }
+        }
+        Brain.tiers [key] = book
+    end
+    if type(book.units) ~= "table" then
+        book.units = {
+        }
+    end
+    return book
+end
+
+function Simulator.tierUpdate(info, ref, pool, budget)
+    if not (info and info.key and ref and # ref > 0) then
+        return 0
+    end
+    local started = Utils.now()
+    local book = Simulator.tierBook(info.key, true)
+    local refSig = Simulator.profileSig(ref)
+    local cliff = Simulator.cliff(info, Simulator.teamFrom(ref, info.map))
+    local function score(team, extra)
+        local entries = Simulator.teamFrom(team, info.map)
+        local function at(mul)
+            local opts = {
+                hpMul = mul
+            }
+            for key, value in pairs(extra or {
+            }) do
+                opts [key] = value
+            end
+            return Simulator.objective(Simulator.run(info, entries, opts))
+        end
+        return (at(cliff) + at(cliff * 0.92)) / 2
+    end
+    local weakest, low
+    for index, unit in ipairs(ref) do
+        if not Units.isFarm(unit.unit_id) and not Units.allyBuff(unit.unit_id) then
+            local ok, value = pcall(Units.score, unit, info.mod)
+            value = ok and value or 0
+            if not low or value < low then
+                weakest, low = index, value
+            end
+        end
+    end
+    weakest = weakest or # ref
+    local bases, members = {
+    }, {
+    }
+    for index, unit in ipairs(ref) do
+        members [unit.unit_id] = index
+    end
+    local function base(index)
+        if not bases [index] then
+            local team = table.clone(ref)
+            table.remove(team, index)
+            bases [index] = {
+                team = team,
+                score = score(team)
+            }
+        end
+        return bases [index]
+    end
+    -- Never measured first, and among those the reserve first: the search looks closely at its priority
+    -- units anyway, the reserve is where a unit the formula overlooked hides. Then the ones measured
+    -- against another team or long ago.
+    local cands, seen = {
+    }, {
+    }
+    for _, list in ipairs({
+        pool and pool.rest or {
+        },
+        pool or {
+        },
+        ref
+    }) do
+        for _, unit in ipairs(list) do
+            local plain = not Units.isFarm(unit.unit_id) and not Units.allyBuff(unit.unit_id)
+            if plain and not seen [unit.unit_id] and Units.rows(unit.unit_id) then
+                seen [unit.unit_id] = true
+                table.insert(cands, unit)
+            end
+        end
+    end
+    local now, order = os.time(), {
+    }
+    for index, unit in ipairs(cands) do
+        local rec = book.units [unit.unit_id]
+        local known = type(rec) == "table" and tonumber(rec.v) ~= nil
+        if not (known and rec.ref == refSig and now - (tonumber(rec.at) or 0) < Simulator.TIER.MAX_AGE) then
+            table.insert(order, {
+                unit = unit,
+                known = known and 1 or 0,
+                at = known and tonumber(rec.at) or 0,
+                index = index
+            })
+        end
+    end
+    table.sort(order, function(a, b)
+        if a.known ~= b.known then
+            return a.known < b.known
+        end
+        if a.at ~= b.at then
+            return a.at < b.at
+        end
+        return a.index < b.index
+    end)
+    local measured = 0
+    for _, item in ipairs(order) do
+        if measured > 0 and Utils.now() - started > budget then
+            break
+        end
+        local unit = item.unit
+        local from = base(members [unit.unit_id] or weakest)
+        local team = table.clone(from.team)
+        table.insert(team, unit)
+        book.units [unit.unit_id] = {
+            v = score(team) - from.score,
+            ref = refSig,
+            at = now,
+            name = Units.name(unit.unit_id)
+        }
+        measured = measured + 1
+    end
+    -- Fused Hero is not a unit you own: Carrot and Vego fuse into it in a match. Alone each of them is
+    -- worth little, so the pair is measured together, in place of the two weakest attackers, with the
+    -- regular buying and with yen saved for the pair; the better of the two is its value.
+    local parents = pool and pool.fusionParents
+    local first, second = Units.FUSION.parents [1], Units.FUSION.parents [2]
+    local fusionKey = Simulator.TIER.FUSION_KEY
+    local rec = book.units [fusionKey]
+    local stale = not (type(rec) == "table" and rec.ref == refSig and now - (tonumber(rec.at) or 0) < Simulator.TIER.MAX_AGE)
+    if stale and Config.actives ~= false and parents and parents [first] and parents [second] and (measured == 0 or Utils.now() - started <= budget * 1.2) then
+        local team, out = table.clone(ref), {
+        }
+        for index = # team, 1, - 1 do
+            local id = team [index].unit_id
+            if id == first or id == second then
+                table.remove(team, index)
+            end
+        end
+        while # team > 4 do
+            local slot, lowest
+            for index, unit in ipairs(team) do
+                if not Units.isFarm(unit.unit_id) and not Units.allyBuff(unit.unit_id) then
+                    local ok, value = pcall(Units.score, unit, info.mod)
+                    value = ok and value or 0
+                    if not lowest or value < lowest then
+                        slot, lowest = index, value
+                    end
+                end
+            end
+            table.insert(out, table.remove(team, slot or # team))
+        end
+        local baseScore = score(team)
+        table.insert(team, parents [first].u)
+        table.insert(team, parents [second].u)
+        local value = math.max(score(team), score(team, {
+            fusionSave = true
+        })) - baseScore
+        book.units [fusionKey] = {
+            v = value,
+            ref = refSig,
+            at = now,
+            name = string.format("%s (%s + %s)", Units.name(Units.FUSION.hero), Units.name(first), Units.name(second)),
+            fusion = true
+        }
+        measured = measured + 1
+    end
+    book.at, book.cliff = now, cliff
+    return measured, # order - measured
+end
+
+-- Measured units, best first, with their tier: S the top 15%, A to 40%, B to 70%, C the rest.
+function Simulator.tierRanks(key)
+    local book = key and Simulator.tierBook(key)
+    local list = {
+    }
+    for id, rec in pairs(book and book.units or {
+    }) do
+        local fusion = type(rec) == "table" and rec.fusion
+        if type(rec) == "table" and tonumber(rec.v) and (fusion or (not Units.isFarm(id) and not Units.allyBuff(id))) then
+            local learned = Brain.learn and Brain.learn [id] and (tonumber(Brain.learn [id].n) or 0) >= 3
+            local ok, effects = pcall(Units.effects, id)
+            local hidden = not fusion and not learned and ok and type(effects) == "table" and (tonumber(effects.passives) or 0) > 0
+            table.insert(list, {
+                id = id,
+                v = tonumber(rec.v),
+                name = tostring(rec.name or id) .. (hidden and "*" or ""),
+                fusion = fusion,
+                hidden = hidden
+            })
+        end
+    end
+    table.sort(list, function(a, b)
+        if a.v ~= b.v then
+            return a.v > b.v
+        end
+        return tostring(a.id) < tostring(b.id)
+    end)
+    for index, item in ipairs(list) do
+        local share = (index - 1) / math.max(1, # list)
+        item.tier = (index == 1 or share < 0.15) and "S" or share < 0.4 and "A" or share < 0.7 and "B" or "C"
+    end
+    return list
+end
+
+function Simulator.tierText(key, oneLine)
+    local list = Simulator.tierRanks(key)
+    if # list == 0 then
+        return nil
+    end
+    local groups, hidden = {
+    }, false
+    for _, item in ipairs(list) do
+        groups [item.tier] = groups [item.tier] or {
+        }
+        table.insert(groups [item.tier], item.name)
+        hidden = hidden or item.hidden
+    end
+    local parts = {
+    }
+    for _, tier in ipairs({
+        "S",
+        "A",
+        "B",
+        "C"
+    }) do
+        if groups [tier] then
+            table.insert(parts, tier .. ": " .. table.concat(groups [tier], ", "))
+        end
+    end
+    if hidden then
+        table.insert(parts, "* passives the simulator does not model: corrected from 3 real runs with the unit")
+    end
+    return table.concat(parts, oneLine and " · " or "\n")
 end
 
 function Simulator.objective(value)
@@ -32836,6 +33893,85 @@ function Simulator.strength(applyFx, arg2)
 end
 
 Simulator.SHORT_WAVES = 20
+-- Farming is judged per hour. When two lineups both clear with room to spare (they beat enemies with
+-- ×SAFE_MUL HP in 2 of 3 tries), the one that finishes sooner gives more runs, so more rewards, an hour.
+-- Endless modes keep the old rule: the team that lasts longer earns more there.
+Simulator.SAFE_MUL, Simulator.FASTER = 1.3, 0.03
+-- Room to spare is checked against three different ways the model can be wrong, not only thicker
+-- enemies: the team must also win when its real damage is 15% under the model's and when enemies
+-- walk 15% faster. The buying inside those runs does not know about the error.
+Simulator.MODEL_ERRORS = {
+    {
+        dpsErr = 0.85,
+        what = "15% less damage than the model"
+    },
+    {
+        speedErr = 1.15,
+        what = "enemies 15% faster"
+    }
+}
+
+function Simulator.farmsPerHour(level)
+    return not (level.infinite and Simulator.unbound(level.ld))
+end
+
+function Simulator.safeWin(level, teamFrom, extra)
+    local wins, tries = 0, 0
+    for _, jitter in ipairs({
+        1,
+        0.92,
+        1.08
+    }) do
+        local opts = {
+            hpMul = Simulator.SAFE_MUL * jitter
+        }
+        for key, value in pairs(extra or {
+        }) do
+            opts [key] = value
+        end
+        tries = tries + 1
+        if Simulator.run(level, teamFrom, opts).won then
+            wins = wins + 1
+        end
+        if wins >= 2 then
+            break
+        end
+        if tries - wins >= 2 then
+            return false, string.format("enemies ×%.1f HP", Simulator.SAFE_MUL)
+        end
+    end
+    if wins < 2 then
+        return false, string.format("enemies ×%.1f HP", Simulator.SAFE_MUL)
+    end
+    for _, err in ipairs(Simulator.MODEL_ERRORS) do
+        local opts = {
+            hpMul = 1
+        }
+        for key, value in pairs(extra or {
+        }) do
+            opts [key] = value
+        end
+        for key, value in pairs(err) do
+            if key ~= "what" then
+                opts [key] = value
+            end
+        end
+        if not Simulator.run(level, teamFrom, opts).won then
+            return false, err.what
+        end
+    end
+    return true
+end
+
+-- Minutes one run takes, the time back to the lobby and into the next run included.
+function Simulator.runMinutes(run)
+    return (tonumber(run and (run.seconds or run.t)) or 0) / 60 + ((Modes and Modes.OVERHEAD) or 0.7)
+end
+
+-- "+12% runs per hour" for the log.
+function Simulator.perHourText(fastMin, slowMin)
+    return string.format("%d%% more runs per hour", math.floor((slowMin / math.max(0.01, fastMin) - 1) * 100 + 0.5))
+end
 Simulator.FARM_SLACK = 3
 Simulator.SUPPORT_TRIES = 3
 Simulator.STATUS = {
@@ -33214,6 +34350,10 @@ function Simulator.bestTeam(applyFx, arg2, pool, num, trace, report)
         say(string.format("Testing eligible candidates for slot %d", #arg22 + 1))
         local value2, value3
         for _, unitData in ipairs(pool) do
+            if value2 and Utils.now() - now > num * 0.4 then
+                say("Slot search cut short: the search's time budget is running out", true)
+                break
+            end
             if not hasUnitId(arg22, unitData.unit_id) then
                 local arg222 = table.clone(arg22)
                 table.insert(arg222, unitData)
@@ -33747,17 +34887,32 @@ function Simulator.bestTeam(applyFx, arg2, pool, num, trace, report)
         table.sort(rankedSlots, function(a, b) return a.w < b.w end)
         local s1, s2 = rankedSlots[1].idx, rankedSlots[2].idx
         local pairCandidates = {}
-        local topBuff, topFarm, topDps = nil, nil, {}
+        local topBuffs, topFarm, topDps, freeDps = {}, nil, {}, {}
         for _, cand in ipairs(pool) do
             if not hasUnitId(arg22, cand.unit_id) then
-                if not topBuff and Units.allyBuff(cand.unit_id) then topBuff = cand end
+                if #topBuffs < 2 and Units.allyBuff(cand.unit_id) and Units.buffAllowed(cand.unit_id) then table.insert(topBuffs, cand) end
                 if not topFarm and Units.isFarm(cand.unit_id) then topFarm = cand end
-                if not Units.isFarm(cand.unit_id) and not Units.allyBuff(cand.unit_id) and #topDps < 3 then
-                    table.insert(topDps, cand)
+                if not Units.isFarm(cand.unit_id) and not Units.allyBuff(cand.unit_id) then
+                    table.insert(freeDps, cand)
+                    if #topDps < 3 then table.insert(topDps, cand) end
                 end
             end
         end
-        if topBuff and topDps[1] then table.insert(pairCandidates, { topBuff, topDps[1] }) end
+        -- A buffer pays only with attackers of the damage type it raises: pair it with the strongest free one.
+        local function buffMate(buffer)
+            local buff = Units.allyBuff(buffer.unit_id)
+            for _, cand in ipairs(freeDps) do
+                local _, base = Units.types(cand.unit_id)
+                if buff and buff.types and buff.types [base] then
+                    return cand
+                end
+            end
+            return topDps[1]
+        end
+        for _, buffer in ipairs(topBuffs) do
+            local mate = buffMate(buffer)
+            if mate then table.insert(pairCandidates, { buffer, mate }) end
+        end
         if topFarm and topDps[1] then table.insert(pairCandidates, { topFarm, topDps[1] }) end
         if topDps[1] and topDps[2] then table.insert(pairCandidates, { topDps[1], topDps[2] }) end
         for _, pair in ipairs(pairCandidates) do
@@ -33773,6 +34928,49 @@ function Simulator.bestTeam(applyFx, arg2, pool, num, trace, report)
                     if isBetterObj(avgObj, score2, res, value2) then
                         arg22, score2, value2 = candTeam, avgObj, res
                         say("Synergy pair improved lineup: " .. Units.name(pair[1].unit_id) .. " + " .. Units.name(pair[2].unit_id), true)
+                    end
+                end
+            end
+        end
+    end
+
+    -- Farming per hour: among the compared lineups that clear with room to spare, a clearly faster one
+    -- beats the one that only holds more enemy HP. Lineups picked by the short-mode farm rule keep
+    -- their farm count; Fusion lineups are compared later, in Simulator.plan.
+    report.faster = nil
+    if Simulator.farmsPerHour(applyFx) and Utils.now() - now < num * 1.2 then
+        local chosenRun = Simulator.run(applyFx, Simulator.teamFrom(arg22, applyFx.map), {
+            hpMul = 1
+        })
+        if chosenRun.won then
+            local chosenMin, chosenSig = Simulator.runMinutes(chosenRun), Simulator.profileSig(arg22)
+            local faster = {
+            }
+            for _, row in ipairs(rows) do
+                if row.run and row.run.won and row.team and row.stress and row.kind ~= "fusion" and not row.extra and row.status ~= "failed"
+                    and (not farmLock or farmCountOf(row.team) == farmCountOf(arg22))
+                    and Simulator.profileSig(row.team) ~= chosenSig then
+                    local rowMin = Simulator.runMinutes(row.run)
+                    if rowMin <= chosenMin * (1 - Simulator.FASTER) and chosenMin - rowMin >= 5 / 60 then
+                        table.insert(faster, row)
+                    end
+                end
+            end
+            table.sort(faster, function(a, b)
+                return Simulator.runMinutes(a.run) < Simulator.runMinutes(b.run)
+            end)
+            if # faster > 0 and Simulator.safeWin(applyFx, Simulator.teamFrom(arg22, applyFx.map)) then
+                for index, row in ipairs(faster) do
+                    if index > 3 then
+                        break
+                    end
+                    if Simulator.safeWin(applyFx, Simulator.teamFrom(row.team, applyFx.map)) then
+                        local rowMin = Simulator.runMinutes(row.run)
+                        report.faster = string.format("\"%s\" clears with room to spare (×%.1f enemy HP) in %.1f min a run instead of %.1f: %s",
+                            row.name, Simulator.SAFE_MUL, rowMin, chosenMin, Simulator.perHourText(rowMin, chosenMin))
+                        arg22, value2, score2 = row.team, row.stress, helper2(row.team, row.stress)
+                        say(report.faster, true)
+                        break
                     end
                 end
             end
@@ -34123,6 +35321,18 @@ function Simulator.compareTeams(level, current, proposed, currentRun, proposedRu
         local better = proposedRun.wave > currentRun.wave
         return better, string.format("normal HP: proposed wave %d, current wave %d", proposedRun.wave, currentRun.wave)
     end
+    -- Both clear: when both do it with room to spare, the faster one farms more an hour. The short-mode
+    -- farm rule (options.prefer) is the user's choice and is not overruled by speed.
+    if currentRun.won and proposedRun.won and not options.prefer and Simulator.farmsPerHour(level) then
+        local curMin, propMin = Simulator.runMinutes(currentRun), Simulator.runMinutes(proposedRun)
+        if math.abs(curMin - propMin) >= math.max(5 / 60, Simulator.FASTER * math.max(curMin, propMin))
+            and Simulator.safeWin(level, Simulator.teamFrom(current, level.map), options.currentOpts)
+            and Simulator.safeWin(level, Simulator.teamFrom(proposed, level.map), options.proposedOpts) then
+            local better = propMin < curMin
+            return better, string.format("both clear with room to spare (×%.1f enemy HP): proposed %.1f min a run, current %.1f min (lobby included): %s",
+                Simulator.SAFE_MUL, propMin, curMin, better and Simulator.perHourText(propMin, curMin) .. " with the proposed team" or Simulator.perHourText(curMin, propMin) .. " with the current team")
+        end
+    end
     local currentWins, currentWaves = Simulator.exam(level, current, options.currentOpts)
     local proposedWins, proposedWaves = Simulator.exam(level, proposed, options.proposedOpts)
     if proposedWins ~= currentWins or math.abs(proposedWaves - currentWaves) > 0.001 then
@@ -34271,7 +35481,21 @@ function Simulator.plan(mode, arg2, arg3, arg4, freshSearch)
         if trace then trace("Reading the unit collection and ranking candidates") end
         local pool = Simulator.pool(mod, info)
         if trace then trace(string.format("Pool: %d priority candidates · %d reserve candidates", #pool, #(pool.rest or {}))) end
-        local ok, res, res2, res3, res32, fusionTeam, fusionRun, fusionOpts = pcall(Simulator.bestTeam, info, arg42, pool, arg3, trace, report)
+        local budget, tierLine = arg3 or 25, nil
+        if Simulator.TIER.SHARE > 0 then
+            local t0 = Utils.now()
+            local okT, measured, left = pcall(Simulator.tierUpdate, info, arg42, pool, budget * Simulator.TIER.SHARE)
+            local spent = Utils.now() - t0
+            pool = Simulator.pool(mod, info)
+            tierLine = okT and Simulator.tierText(info.key, true) or nil
+            if trace then
+                trace(okT and string.format("Tier list: %d of your units measured in %.1fs, %d to go", measured or 0, spent, left or 0) or ("Tier list skipped: " .. tostring(measured)))
+            end
+            if okT and tierLine then
+                App.log(1, "TIER", tostring(mode.label) .. ": " .. tierLine)
+            end
+        end
+        local ok, res, res2, res3, res32, fusionTeam, fusionRun, fusionOpts = pcall(Simulator.bestTeam, info, arg42, pool, budget, trace, report)
         if ok and res then
             local candidate = Simulator.teamFrom(res, info.map)
             local fusionRun2 = Simulator.run(info, candidate, { hpMul = 1 })
@@ -34361,7 +35585,7 @@ function Simulator.plan(mode, arg2, arg3, arg4, freshSearch)
                     })
                 end
             end
-            local whyShort = (not keptCurrent and not fusionPicked and report.priority) or Simulator.whyLine(info, res, fusionRun2) or evaluate.teamReason
+            local whyShort = (not keptCurrent and not fusionPicked and (report.priority or report.faster)) or Simulator.whyLine(info, res, fusionRun2) or evaluate.teamReason
             if trace then
                 for _, line in ipairs(Simulator.reportLines(report, info)) do trace(line, true) end
                 for _, line in ipairs(Simulator.buffNotes(res, fusionRun2)) do trace(line, true) end
@@ -34442,6 +35666,7 @@ function Simulator.plan(mode, arg2, arg3, arg4, freshSearch)
                     saving = strategy and strategy.fusionSave or nil,
                     why = whyShort,
                     detail = evaluate.teamReason,
+                    tiers = Simulator.tierText(info.key),
                     fusion = {
                         status = report.fusion.status,
                         note = report.fusion.note
@@ -36449,6 +37674,12 @@ function Dungeon.enter(arg1, dungeonValue, arg3)
         seed = value.r._r,
         d = value.d
     }
+    pcall(function()
+        local best = Dungeon._pick and Dungeon._pick.plan and Dungeon._pick.plan.best
+        if best and best.path [1] and best.path [1].r and best.path [1].r._r == value.r._r then
+            Brain.dg.room.path = Dungeon.pathName(best)
+        end
+    end)
     Brain.pending = {
         key = "dg",
         kind = "dungeon",
@@ -36942,6 +38173,90 @@ function Match.infWave(arg1)
     end)
 end
 
+-- Infinite, wave by wave: what going on is still worth. From this mode's own past runs: the gems a run
+-- ended with by the wave it reached (averaged per wave reached, never falling with more waves), and how
+-- many runs that got this far went k waves further. For k = 1..LOOK waves ahead: expected extra gems /
+-- the minutes those waves take at this run's pace. The best of those rates is compared with the best
+-- other mode; looking several waves ahead keeps a weak wave from ending the run just before a big pay.
+Match.INF_RUNS, Match.INF_LOOK, Match.INF_MIN_RUNS = 40, 10, 5
+
+function Match.infMarginal(runs, wave, minPerWave)
+    if type(runs) ~= "table" or # runs < Match.INF_MIN_RUNS or not (minPerWave and minPerWave > 0) then
+        return nil
+    end
+    local byWave = {
+    }
+    local top = 0
+    for _, run in ipairs(runs) do
+        local w = math.floor(tonumber(run.w) or 0)
+        if w > 0 then
+            byWave [w] = byWave [w] or {
+                sum = 0,
+                n = 0
+            }
+            byWave [w].sum, byWave [w].n = byWave [w].sum + (tonumber(run.g) or 0), byWave [w].n + 1
+            top = math.max(top, w)
+        end
+    end
+    -- Gems by the wave reached: running average, kept from falling with more waves.
+    local gems, last = {
+    }, 0
+    for w = 1, top do
+        if byWave [w] then
+            last = math.max(last, byWave [w].sum / byWave [w].n)
+        end
+        gems [w] = last
+    end
+    local function reached(w)
+        local n = 0
+        for _, run in ipairs(runs) do
+            if (tonumber(run.w) or 0) >= w then
+                n = n + 1
+            end
+        end
+        return n
+    end
+    local here = reached(wave)
+    if here < 2 then
+        return nil
+    end
+    local now = gems [math.min(wave, top)] or 0
+    local best, bestK
+    for k = 1, Match.INF_LOOK do
+        local w = wave + k
+        if w > top then
+            break
+        end
+        local survive = reached(w) / here
+        local gain = survive * math.max(0, gems [w] - now)
+        local rate = gain / (k * minPerWave)
+        if not best or rate > best then
+            best, bestK = rate, k
+        end
+    end
+    return best, bestK, here
+end
+
+-- Infinite (2.23): how many more waves a farm can earn for. The match's own wave count there is a
+-- rolling horizon (the wave + 14), not where runs end; this mode's past runs that got this far say how
+-- many waves they went on, on average (the exit rule included). nil until enough runs are known.
+function Match.infLeft(runs, wave)
+    if type(runs) ~= "table" or # runs < Match.INF_MIN_RUNS then
+        return nil
+    end
+    local sum, n = 0, 0
+    for _, run in ipairs(runs) do
+        local reached = tonumber(run.w) or 0
+        if reached >= wave then
+            sum, n = sum + (reached - wave), n + 1
+        end
+    end
+    if n < 2 then
+        return nil
+    end
+    return sum / n
+end
+
 function Match.infStop(arg1)
     local count = 0
     for _, item in ipairs(Utils.list(Core.GS.DAILY_INFINITE_REWARDS)) do
@@ -36968,11 +38283,20 @@ function Match.infStop(arg1)
             value2 = value
         end
     end
+    -- With enough past runs, what the rest of this run is worth replaces the mode's past average.
+    local elapsedMin = (os.clock() - (Match.startClock or os.clock())) / 60
+    local marginal, ahead, runsHere = Match.infMarginal(Brain.infRuns and Brain.infRuns [Match.key], arg1, arg1 > 0 and elapsedMin / arg1 or nil)
+    if marginal then
+        value = marginal
+    end
     if not value2 or (value2.score or 0) <= value then
+        if marginal and FarmHub.every("infKeep", 300) then
+            App.log(1, "MATCH", string.format("Infinite: wave %d — going on: ≈%.2f gems/min over the next %d waves (from %d past runs that got this far), the best other mode gives %.2f", arg1, marginal, ahead or 0, runsHere or 0, value2 and value2.score or 0))
+        end
         return
     end
     Match.stopping = true
-    App.log(1, "MATCH", string.format("Infinite: wave %d, the daily gems are in and no unit trains here — ending the run (≈%.1f gems/min from here, %.1f in %s): selling your units", arg1, value, value2.score, value2.label))
+    App.log(1, "MATCH", string.format("Infinite: wave %d, the daily gems are in and no unit trains here — ending the run (≈%.1f gems/min from here%s, %.1f in %s): selling your units", arg1, value, marginal and string.format(" over the next %d waves, from %d past runs", ahead or 0, runsHere or 0) or " (this mode's average)", value2.score, value2.label))
     Match.sellAll()
 end
 
@@ -37579,6 +38903,251 @@ function Match.airShare()
         end
     end
     return count > 0 and count2 / count or 0
+end
+
+-- ===== Attack shape and spot (2.20) =====
+-- How many stretches of road one hit covers besides its target, from spot (px, pz) with range R.
+-- Road points xs/zs/progs are evenly spaced (Match.samples, ~2 studs), so a count is a length of road.
+-- The target is picked two ways, half and half: the front enemy (furthest along the road, as tower
+-- games usually aim) and any enemy in range (up to 12, evenly spread). Shapes:
+--   circle — around the target, radius r (not cut by the unit's range);
+--   line   — from the unit toward the target, length L, half width Units.lineHalf (half the attack's
+--            width when the game gives one, else Units.LINE_HALF — a guess);
+--   cone   — from the unit, within R, ±angle/2 around the target's direction;
+--   full_aoe is the road in range itself, already what coverage counts: no extra factor for it.
+Units.LINE_HALF = 1.5
+
+-- Half width of a line attack, the same for the spot score and for turning the unit (2.22).
+-- aoe_type.width is read as the full width; without it the old guess stays.
+function Units.lineHalf(width)
+    width = tonumber(width)
+    if width and width > 0 then
+        return width / 2
+    end
+    return Units.LINE_HALF
+end
+
+function Units.shapeHits(shape, px, pz, R, xs, zs, progs)
+    local inRange, R2 = {
+    }, R * R
+    for i = 1, # xs do
+        local dx, dz = xs [i] - px, zs [i] - pz
+        if dx * dx + dz * dz <= R2 then
+            table.insert(inRange, i)
+        end
+    end
+    if # inRange == 0 then
+        return nil
+    end
+    local kind = shape.type
+    local r2 = (shape.radius or 4) ^ 2
+    local L = shape.length or R
+    local half = Units.lineHalf(shape.width)
+    local cosHalf = math.cos(math.rad((shape.angle or 45) / 2))
+    local function covered(t)
+        local tx, tz = xs [t], zs [t]
+        local ux, uz = tx - px, tz - pz
+        local len = math.sqrt(ux * ux + uz * uz)
+        if len < 1e-6 then
+            ux, uz, len = 1, 0, 1
+        end
+        ux, uz = ux / len, uz / len
+        local n = 0
+        if kind == "circle" then
+            for j = 1, # xs do
+                if j ~= t then
+                    local dx, dz = xs [j] - tx, zs [j] - tz
+                    if dx * dx + dz * dz <= r2 then
+                        n = n + 1
+                    end
+                end
+            end
+        elseif kind == "line" then
+            for j = 1, # xs do
+                if j ~= t then
+                    local vx, vz = xs [j] - px, zs [j] - pz
+                    local along = vx * ux + vz * uz
+                    if along >= 0 and along <= L and math.abs(vx * uz - vz * ux) <= half then
+                        n = n + 1
+                    end
+                end
+            end
+        elseif kind == "cone" then
+            for _, j in ipairs(inRange) do
+                if j ~= t then
+                    local vx, vz = xs [j] - px, zs [j] - pz
+                    local d = math.sqrt(vx * vx + vz * vz)
+                    if d > 1e-6 and (vx * ux + vz * uz) >= d * cosHalf then
+                        n = n + 1
+                    end
+                end
+            end
+        end
+        return n
+    end
+    local front = inRange [1]
+    for _, i in ipairs(inRange) do
+        if (progs [i] or 0) > (progs [front] or 0) then
+            front = i
+        end
+    end
+    local step, sum, k = math.max(1, math.floor(# inRange / 12)), 0, 0
+    for index = 1, # inRange, step do
+        sum, k = sum + covered(inRange [index]), k + 1
+    end
+    return 0.5 * covered(front) + 0.5 * sum / math.max(1, k)
+end
+
+-- Shape factor of each spot for one unit: its extra coverage over the median of all spots it can
+-- stand on (1 = an ordinary spot), smoothed toward 1 and kept within 0.4..2.5. nil when the attack
+-- hits one enemy, covers its whole circle anyway, or the road gives nothing to compare.
+Units.SHAPE_SMOOTH, Units.SHAPE_MIN, Units.SHAPE_MAX = 0.75, 0.4, 2.5
+
+function Units.shapeFactors(shape, spots, R, xs, zs, progs, yieldEvery)
+    if not shape or shape.type == "full_aoe" or (shape.type ~= "circle" and shape.type ~= "line" and shape.type ~= "cone") then
+        return nil
+    end
+    local raw, list = {
+    }, {
+    }
+    for index, spot in ipairs(spots) do
+        local value = Units.shapeHits(shape, spot.X, spot.Z, R, xs, zs, progs)
+        if value then
+            raw [spot] = value
+            table.insert(list, value)
+        end
+        if yieldEvery and index % yieldEvery == 0 then
+            task.wait()
+        end
+    end
+    if # list < 3 then
+        return nil
+    end
+    table.sort(list)
+    local median = list [math.ceil(# list / 2)]
+    if median < 0.5 then
+        return nil
+    end
+    local factors = {
+    }
+    for spot, value in pairs(raw) do
+        factors [spot] = Utils.clamp(1 + Units.SHAPE_SMOOTH * (value / median - 1), Units.SHAPE_MIN, Units.SHAPE_MAX)
+    end
+    return factors, median
+end
+
+-- ===== Attack shape outside the plan (2.22) =====
+-- When a unit has no planned spot (or it is taken), and in the kill box / fast / control choices,
+-- the spots that rank best by road are re-ranked by the unit's attack shape, the same way the plan
+-- does: score × (1 + (n − 1)·f) / n, f = the spot's extra targets over the median spot. The median
+-- comes from a fixed spread of the map's candidate spots (not the ones still free), so taking one
+-- spot does not change how the others score. Per unit, shape and map it is worked out once; a spot's
+-- factor is kept by its key. Only the top SHAPE_TOP spots by road are looked at.
+Match.SHAPE_TOP, Match.SHAPE_SAMPLE = 12, 40
+
+function Match.shapeInfo(unit)
+    if not (unit and unit.id and unit.u and Match.samples and # Match.samples > 0 and Match.cands and # Match.cands > 0) then
+        return nil
+    end
+    local rows = Units.rows(unit.id)
+    local maxRow = rows and rows [rows.max]
+    local ok, info = pcall(function()
+        return maxRow and maxRow.atk and Units.attackInfo(maxRow.atk, maxRow.range)
+    end)
+    local shape = ok and info and info.shape
+    if not shape or not ((tonumber(info.n) or 1) > 1.05) or shape.type == "full_aoe" then
+        return nil
+    end
+    local R = Units.range(unit.u, rows.max) * ((Match.info and tonumber(Match.info.rangeScale)) or 1)
+    local key = table.concat({
+        tostring(unit.id),
+        tostring(shape.type),
+        tostring(shape.radius),
+        tostring(shape.angle),
+        tostring(shape.length),
+        tostring(shape.width),
+        string.format("%.1f", R),
+        tostring(# Match.samples),
+        tostring(# Match.cands)
+    }, "|")
+    local mapKey = Match.mapKey and Match.mapKey() or ""
+    if Match.shapeMemoMap ~= mapKey or type(Match.shapeMemo) ~= "table" then
+        Match.shapeMemo, Match.shapeMemoMap = {
+        }, mapKey
+    end
+    local memo = Match.shapeMemo [key]
+    if memo == nil then
+        memo = false
+        local xs, zs, ps = {
+        }, {
+        }, {
+        }
+        for i, sample in ipairs(Match.samples) do
+            xs [i], zs [i], ps [i] = sample.pos.X, sample.pos.Z, sample.prog
+        end
+        local spots, step = {
+        }, math.max(1, math.floor(# Match.cands / Match.SHAPE_SAMPLE))
+        for i = 1, # Match.cands, step do
+            table.insert(spots, Match.cands [i])
+        end
+        local _, median = Units.shapeFactors(shape, spots, R, xs, zs, ps, 10)
+        if median then
+            memo = {
+                id = unit.id,
+                shape = shape,
+                n = tonumber(info.n),
+                R = R,
+                median = median,
+                xs = xs,
+                zs = zs,
+                ps = ps,
+                f = {
+                }
+            }
+        end
+        Match.shapeMemo [key] = memo
+    end
+    return memo or nil
+end
+
+-- The shape's multiplier for one spot (1 = an ordinary spot), and the factor f itself.
+function Match.shapeMul(memo, spot)
+    local k = Match.spotKey(spot)
+    local f = memo.f [k]
+    if f == nil then
+        local hits = Units.shapeHits(memo.shape, spot.X, spot.Z, memo.R, memo.xs, memo.zs, memo.ps)
+        f = hits and Utils.clamp(1 + Units.SHAPE_SMOOTH * (hits / memo.median - 1), Units.SHAPE_MIN, Units.SHAPE_MAX) or 1
+        memo.f [k] = f
+    end
+    return (1 + (memo.n - 1) * f) / memo.n, f
+end
+
+-- ranked: list of {p = spot, v = score, ...}. Returns the item with the best v × shape among the top
+-- SHAPE_TOP by v (its .v2 is that product), skipping items check() refuses; nil when none.
+function Match.shapeRerank(memo, ranked, check)
+    table.sort(ranked, function(a, b)
+        return a.v > b.v
+    end)
+    local best
+    for i = 1, math.min(Match.SHAPE_TOP, # ranked) do
+        local item = ranked [i]
+        if not check or check(item) then
+            local mul, f = Match.shapeMul(memo, item.p)
+            item.v2, item.f = item.v * mul, f
+            if not best or item.v2 > best.v2 then
+                best = item
+            end
+        end
+    end
+    if best and ranked [1] and best ~= ranked [1] then
+        Match.shapeSaid = Match.shapeSaid or {
+        }
+        if not Match.shapeSaid [memo.id] then
+            Match.shapeSaid [memo.id] = true
+            App.log(1, "PLACE", string.format("%s: its %s attack picks a spot with ×%.2f of an ordinary spot's extra targets over the spot with the most road", Units.name(memo.id), tostring(memo.shape.type), best.f or 1))
+        end
+    end
+    return best
 end
 
 function Match.cover(valid, range, arg3, depth)
@@ -38469,6 +40038,16 @@ function Match.planSpots()
             end
         end
     end
+    local roadX, roadZ, roadP = {
+    }, {
+    }, {
+    }
+    for i, sample in ipairs(Match.samples) do
+        roadX [i], roadZ [i], roadP [i] = sample.pos.X, sample.pos.Z, sample.prog
+    end
+    local shapeAt, shapeNote = {
+    }, {
+    }
     for _, attacker in ipairs(attackers) do
         local rows = Units.rows(attacker.id)
         local fullRange = Units.range(attacker.e.u, rows.max) * rangeScale
@@ -38519,6 +40098,63 @@ function Match.planSpots()
         attacker.old = attacker.cands [1]
         pickSpaced(byCover, 4, attacker.cands)
         pickSpaced(byEarly, 2, attacker.cands)
+        -- Attack shape: a line wants a long straight stretch along its hit, a circle a bend where the road
+        -- folds, a cone road in front of it. Spots that suit the shape join the candidates (the old ones
+        -- stay), and the simulator of this plan gives each spot its own number of enemies per hit.
+        local maxRow = rows [rows.max]
+        local info = maxRow and maxRow.atk and Units.attackInfo(maxRow.atk, maxRow.range)
+        if info and info.shape and info.n > 1.05 then
+            local factors = Units.shapeFactors(info.shape, validSpots(attacker.e.data), fullRange, roadX, roadZ, roadP, 40)
+            if factors then
+                shapeAt [attacker.id] = factors
+                local byShape, byShapeFast, byShapeBox = {
+                }, {
+                }, {
+                }
+                for _, entry in ipairs(byCover) do
+                    local f = factors [entry.p]
+                    if f then
+                        local mul = (1 + (info.n - 1) * f) / info.n
+                        table.insert(byShape, {
+                            p = entry.p,
+                            v = entry.v * mul
+                        })
+                    end
+                end
+                for _, list in ipairs({
+                    {
+                        byFast,
+                        byShapeFast
+                    },
+                    {
+                        byBox,
+                        byShapeBox
+                    }
+                }) do
+                    for _, entry in ipairs(list [1]) do
+                        local f = factors [entry.p]
+                        if f then
+                            table.insert(list [2], {
+                                p = entry.p,
+                                v = entry.v * (1 + (info.n - 1) * f) / info.n
+                            })
+                        end
+                    end
+                end
+                for _, ranking in ipairs({
+                    byShape,
+                    byShapeFast,
+                    byShapeBox
+                }) do
+                    table.sort(ranking, function(a, b)
+                        return a.v > b.v
+                    end)
+                end
+                pickSpaced(byShape, 2, attacker.cands)
+                attacker.shapeFast, attacker.shapeBox = byShapeFast, byShapeBox
+                shapeNote [attacker.id] = info.shape.type
+            end
+        end
         local function topShare(ranked)
             local best, top = ranked [1] and ranked [1].v or 0, {
             }
@@ -38535,28 +40171,55 @@ function Match.planSpots()
         }
         pickSpaced(topShare(byFast), 5, attacker.fast)
         pickSpaced(topShare(byBox), 5, attacker.box)
+        if attacker.shapeFast then
+            pickSpaced(topShare(attacker.shapeFast), 2, attacker.fast)
+            pickSpaced(topShare(attacker.shapeBox), 2, attacker.box)
+            attacker.shapeFast, attacker.shapeBox = nil, nil
+        end
     end
     local simTeam = Simulator.teamFrom(teamUnits, info.map)
     local simCache, runs = {
     }, 0
+    local resultCache, cacheHits, swapsKept = {
+    }, 0, 0
+    local function layoutKey(layout, hpMul)
+        local parts = {
+        }
+        for unitId, spot in pairs(layout.spots) do
+            table.insert(parts, string.format("%s@%.2f,%.2f", tostring(unitId), spot.X, spot.Z))
+        end
+        table.sort(parts)
+        return string.format("%s|%.4f|%s", tostring(layout.style), hpMul, table.concat(parts, ";"))
+    end
     local function simulate(layout, hpMul)
+        local key = layoutKey(layout, hpMul)
+        local cached = resultCache [key]
+        if cached then
+            cacheHits = cacheHits + 1
+            return cached
+        end
         runs = runs + 1
         local result = Simulator.run(info, simTeam, {
             hpMul = hpMul,
             layout = layout
         })
+        resultCache [key] = result
         task.wait()
         return result
     end
     local function spotHistory(layout)
-        local score = 0
+        local recs = {
+        }
         for spotKey, spot in pairs(layout.spots) do
-            local spotRec = Match.spotRec(spotKey, spot)
-            if spotRec then
-                score = score + (tonumber(spotRec.wins) or 0) * 200 - ((tonumber(spotRec.runs) or 0) - (tonumber(spotRec.wins) or 0)) * 1500
+            table.insert(recs, Match.spotRec(spotKey, spot) or false)
+        end
+        local score = 0
+        for _, rec in ipairs(recs) do
+            if rec then
+                score = score + Match.histTerm(rec, Match.HIST.SPOT_W / # recs)
             end
         end
-        return score
+        return score + Match.histTerm(Match.planRec(Match.planSig(layout.spots, layout.style)), Match.HIST.PLAN_W)
     end
     local function layoutScore(layout, result)
         return Simulator.objective(result) * 100 + spotHistory(layout)
@@ -38576,7 +40239,8 @@ function Match.planSpots()
             spots = {
             },
             style = style,
-            list = listName
+            list = listName,
+            shapeAt = shapeAt
         }
         for _, attacker in ipairs(attackers) do
             local free
@@ -38600,6 +40264,10 @@ function Match.planSpots()
             3,
             4
         }) do
+            if result and Utils.now() - planStart > Match.PLAN_TOTAL * 1.5 then
+                limit = hpMul
+                break
+            end
             result = simulate(layout, hpMul)
             if not result.won then
                 limit = hpMul
@@ -38633,6 +40301,32 @@ function Match.planSpots()
             end
             if not improved then
                 break
+            end
+        end
+        -- Two units trading places: a move no single unit can make, since each spot is taken. Only
+        -- units that can stand on the same ground (hill or not, same footprint) trade.
+        local function kind(attacker)
+            local data = attacker.e.data or {
+            }
+            return (data.hill_unit and "hill" or "ground") .. ":" .. tostring(data.override_hitbox_radius or "")
+        end
+        for i = 1, # attackers do
+            for j = i + 1, # attackers do
+                if Utils.now() - started > maxSec * 1.25 or runs - runs0 >= maxRuns * 1.25 or Utils.now() - planStart > Match.PLAN_TOTAL then
+                    return
+                end
+                local a, b = attackers [i], attackers [j]
+                local pa, pb = layout.spots [a.id], layout.spots [b.id]
+                if pa and pb and pa ~= pb and kind(a) == kind(b) then
+                    layout.spots [a.id], layout.spots [b.id] = pb, pa
+                    local score = layoutScore(layout, simulate(layout, hpMul))
+                    if score > bestScore + 1 then
+                        bestScore = score
+                        swapsKept = swapsKept + 1
+                    else
+                        layout.spots [a.id], layout.spots [b.id] = pa, pb
+                    end
+                end
             end
         end
     end
@@ -38791,21 +40485,100 @@ function Match.planSpots()
         end
         Match.layout [attacker.id] = order
         if spot then
-            table.insert(summary, string.format("%s %s (%d%% of the road at full range)", Units.name(attacker.id), Match.spotKey(spot), math.floor((roadCover(spot, Units.range(attacker.e.u, Units.rows(attacker.id).max) * rangeScale)) / math.max(1, # Match.samples) * 100 + 0.5)))
+            local f = shapeAt [attacker.id] and shapeAt [attacker.id] [spot]
+            table.insert(summary, string.format("%s %s (%d%% of the road at full range%s)", Units.name(attacker.id), Match.spotKey(spot), math.floor((roadCover(spot, Units.range(attacker.e.u, Units.rows(attacker.id).max) * rangeScale)) / math.max(1, # Match.samples) * 100 + 0.5),
+                f and string.format(", %s attack: ×%.2f of an ordinary spot's extra targets", tostring(shapeNote [attacker.id]), f) or ""))
         end
     end
     Match.layoutSim = chosen
     local breakMul, simResult = breakingPoint(chosen)
-    App.log(1, "SPOTS", string.format("placement: %s, because %s · %s · against enemies ×%.1f the simulator %s at wave %d · %d runs in %.1f s", Match.STYLE_WORDS [chosen.style], reason, table.concat(summary, " · "), breakMul, simResult.won and "wins" or "falls", simResult.wave, runs, Utils.now() - planStart))
+    App.log(1, "SPOTS", string.format("placement: %s, because %s · %s · against enemies ×%.1f the simulator %s at wave %d · %d runs (+%d repeats from cache), %d trades of places kept, in %.1f s", Match.STYLE_WORDS [chosen.style], reason, table.concat(summary, " · "), breakMul, simResult.won and "wins" or "falls", simResult.wave, runs, cacheHits, swapsKept, Utils.now() - planStart))
     App.status("Placement", Match.STYLE_WORDS [chosen.style])
     Match.lastLife(breakMul, simResult)
 end
 
+-- Real results of spots and whole plans. Older runs fade (each new one weighs 1, the one before
+-- DECAY, and so on), and history only nudges the simulator. With the fading a record never weighs
+-- more than about 7 runs, so all of it together moves a layout's score by at most about two thirds
+-- of SPOT_W + PLAN_W (= about one wave, 10 simulator points × 100). A loss is blamed on the whole
+-- plan first; each spot only carries its share, since a run is often lost for reasons no spot is
+-- to blame for.
+Match.HIST = {
+    DECAY = 0.85,
+    SPOT_W = 600,
+    PLAN_W = 900,
+    PLANS = 40
+}
+
+function Match.histAdd(rec, won)
+    local decay = Match.HIST.DECAY
+    rec.runs = (tonumber(rec.runs) or 0) * decay + 1
+    rec.wins = (tonumber(rec.wins) or 0) * decay + (won and 1 or 0)
+    rec.at = os.time()
+end
+
+-- From -weight (only losses, many of them) to +weight (only wins, many of them).
+function Match.histTerm(rec, weight)
+    local runs = rec and tonumber(rec.runs) or 0
+    if runs <= 0 then
+        return 0
+    end
+    local wins = Utils.clamp(tonumber(rec.wins) or 0, 0, runs)
+    local p = (wins + 0.5) / (runs + 1)
+    return weight * (runs / (runs + 2)) * (p - 0.5) * 2
+end
+
+function Match.planSig(spots, style)
+    local parts = {
+    }
+    for unitId, spot in pairs(spots or {
+    }) do
+        table.insert(parts, tostring(unitId) .. "=" .. Match.spotKey(spot))
+    end
+    table.sort(parts)
+    return tostring(style) .. "|" .. table.concat(parts, ";")
+end
+
+function Match.planRec(sig, create)
+    local mapKey = Match.mapKey()
+    Brain.maps [mapKey] = Brain.maps [mapKey] or {
+    }
+    local plans = Brain.maps [mapKey].plans
+    if type(plans) ~= "table" then
+        if not create then
+            return nil
+        end
+        plans = {
+        }
+        Brain.maps [mapKey].plans = plans
+    end
+    if not plans [sig] and create then
+        if Utils.count(plans) >= Match.HIST.PLANS then
+            local oldest, at
+            for key, rec in pairs(plans) do
+                if not at or (tonumber(rec.at) or 0) < at then
+                    oldest, at = key, tonumber(rec.at) or 0
+                end
+            end
+            plans [oldest] = nil
+        end
+        plans [sig] = {
+            runs = 0,
+            wins = 0
+        }
+    end
+    return plans [sig]
+end
+
 function Match.spotResult(arg1)
+    local used = 0
     for key, value in pairs(Match.layoutUsed or {
     }) do
-        local spotRec = Match.spotRec(key, value, true)
-        spotRec.runs, spotRec.wins = (tonumber(spotRec.runs) or 0) + 1, (tonumber(spotRec.wins) or 0) + (arg1 and 1 or 0)
+        Match.histAdd(Match.spotRec(key, value, true), arg1)
+        used = used + 1
+    end
+    if used > 0 and Match.style then
+        Match.histAdd(Match.planRec(Match.planSig(Match.layoutUsed, Match.style), true), arg1)
     end
     if not Match.infinite then
         Match.styleRecord(arg1)
@@ -38896,6 +40669,23 @@ function Match.controlSpot(arg1, arg2)
     table.sort(list2, function(arg1, arg2)
         return arg1.sc > arg2.sc
     end)
+    -- Attack shape (2.22): among the best spots by road, a hit that catches more of the road holds more.
+    local shapeMemo = Match.shapeInfo(arg1)
+    if shapeMemo and # list2 > 1 then
+        local top = {
+        }
+        for i = 1, math.min(Match.SHAPE_TOP, # list2) do
+            list2 [i].p, list2 [i].v = list2 [i].pos, list2 [i].sc
+            top [i] = list2 [i]
+        end
+        Match.shapeRerank(shapeMemo, top)
+        table.sort(top, function(a, b)
+            return (a.v2 or a.v) > (b.v2 or b.v)
+        end)
+        for i, item in ipairs(top) do
+            list2 [i] = item
+        end
+    end
     for i, item in ipairs(list2) do
         local valid = Match.valid(item.pos, arg1.data)
         if valid then
@@ -38949,6 +40739,9 @@ function Match.holdSpot(arg1)
     end
     local range = Units.range(arg1.u, math.min(tonumber(holds2) or 0, 3, Units.rows(arg1.id).max)) * ((Match.info and tonumber(Match.info.rangeScale)) or 1)
     local value, value2, value3
+    local shapeMemo = Match.shapeInfo(arg1)
+    local ranked = shapeMemo and {
+    } or nil
     for i, cand in ipairs(Match.cands) do
         local flat, count, count2 = Utils.flat(cand), 0, 0
         for i, sample in ipairs(Match.samples) do
@@ -38956,6 +40749,13 @@ function Match.holdSpot(arg1)
                 count = count + list2 [i]
                 count2 = count2 + 1
             end
+        end
+        if ranked and count > 0 then
+            table.insert(ranked, {
+                p = cand,
+                v = count,
+                c = count2
+            })
         end
         if count > 0 and (not value2 or count > value2) then
             local valid = Match.valid(cand, arg1.data)
@@ -38965,6 +40765,16 @@ function Match.holdSpot(arg1)
         end
         if i % 40 == 0 then
             task.wait()
+        end
+    end
+    -- Attack shape (2.22): the best free spot among the top ones by held damage × shape.
+    if ranked and # ranked > 1 then
+        local best = Match.shapeRerank(shapeMemo, ranked, function(item)
+            item.valid = Match.valid(item.p, arg1.data)
+            return item.valid ~= nil
+        end)
+        if best then
+            value, value2, value3 = best.valid, best.v, best.c
         end
     end
     if not value then
@@ -39238,6 +41048,9 @@ function Match.bestSpot(unit, isFarm, arg3)
         end
         local value, value2, value3
         local r22Sq = range22 * range22
+        local shapeMemo = Match.shapeInfo(unit)
+        local ranked = shapeMemo and {
+        } or nil
         for _, cand in ipairs(Match.cands) do
             Match.spotScan = (Match.spotScan or 0) + 1
             if Match.spotScan % 100 == 0 then
@@ -39257,10 +41070,21 @@ function Match.bestSpot(unit, isFarm, arg3)
                         end
                     end
                 end
+                if ranked and count > 0 then
+                    table.insert(ranked, {
+                        p = valid,
+                        v = count,
+                        c = count2
+                    })
+                end
                 if not value2 or count > value2 then
                     value, value2, value3 = valid, count, count2
                 end
             end
+        end
+        local best = ranked and # ranked > 1 and Match.shapeRerank(shapeMemo, ranked)
+        if best then
+            value, value2, value3 = best.p, best.v, best.c
         end
         if value and value2 > 0 then
             if not Match.zoneSaid then
@@ -39274,6 +41098,9 @@ function Match.bestSpot(unit, isFarm, arg3)
         local range22 = range2 or range
         local r22Sq = range22 * range22
         local value, value2, value3
+        local fastMemo = Match.shapeInfo(unit)
+        local fastRanked = fastMemo and {
+        } or nil
         for _, cand in ipairs(Match.cands) do
             Match.spotScan = (Match.spotScan or 0) + 1
             if Match.spotScan % 100 == 0 then
@@ -39294,10 +41121,21 @@ function Match.bestSpot(unit, isFarm, arg3)
                         end
                     end
                 end
+                if fastRanked and count > 0 then
+                    table.insert(fastRanked, {
+                        p = valid,
+                        v = count,
+                        c = count2
+                    })
+                end
                 if not value2 or count > value2 then
                     value, value2, value3 = valid, count, count2
                 end
             end
+        end
+        local best = fastRanked and # fastRanked > 1 and Match.shapeRerank(fastMemo, fastRanked)
+        if best then
+            value, value2, value3 = best.p, best.v, best.c
         end
         if value and value2 > 0 then
             return value, value3 or 0
@@ -39384,6 +41222,10 @@ function Match.bestSpot(unit, isFarm, arg3)
     local bestUnbuffedScore, bestUnbuffedRoad = nil, 0
     local fullSquadCands = {
     }
+    -- Attack shape (2.22): a plain attacker's best spots by road are re-ranked by its shape.
+    local plainMemo = not (isFarm or Units.isFarm(unit.id) or allyBuff or value or zone or flag or mergeSpot or farmMergeSpot or (mates and # mates > 0) or (depth and depth.leak)) and Match.shapeInfo(unit) or nil
+    local plainRanked = plainMemo and {
+    } or nil
     local checkFullSquad = # squadCircles >= 4 and not isFarm and not allyBuff and not value and not zone and not flag and not mergeSpot and not farmMergeSpot
     for _, cand in ipairs(cands) do
         Match.spotScan = (Match.spotScan or 0) + 1
@@ -39461,6 +41303,13 @@ function Match.bestSpot(unit, isFarm, arg3)
                     end
                 end
                 cover2 = cover2 * (1 + count)
+                if plainRanked and cover2 > 0 then
+                    table.insert(plainRanked, {
+                        p = valid,
+                        v = cover2,
+                        road = rawRoad
+                    })
+                end
             end
             if checkFullSquad and unbuffedScore then
                 if not bestUnbuffedScore or unbuffedScore > bestUnbuffedScore then
@@ -39499,6 +41348,12 @@ function Match.bestSpot(unit, isFarm, arg3)
             if not value4 or cover2 > value4 then
                 value3, value4, cover = valid, cover2, rawRoad or Match.cover(valid, range)
             end
+        end
+    end
+    if plainRanked and # plainRanked > 1 then
+        local best = Match.shapeRerank(plainMemo, plainRanked)
+        if best then
+            value3, value4, cover = best.p, best.v2, best.road or Match.cover(best.p, range)
         end
     end
     if checkFullSquad and # fullSquadCands > 0 and bestUnbuffedRoad > 0 then
@@ -39562,7 +41417,7 @@ function Match.lookAt(bestSpot, unitEntry)
                     local t = part.aoe_type.type
                     if t == "straight" or t == "line" then
                         aoeKind = "line"
-                        lineHalf = math.max(2, (tonumber(part.aoe_type.width) or 6) / 2)
+                        lineHalf = Units.lineHalf(part.aoe_type.width)
                         break
                     elseif t == "cone" then
                         aoeKind = "cone"
@@ -39898,6 +41753,16 @@ function Match.measure()
                 local ok, res = pcall(Match.liveDps, unit, idValue)
                 if ok and res then
                     count2 = count2 + res * now2
+                    -- Per unit, for learning: what it could deal while it stood and had a target, at the
+                    -- stats it had then (without the learned correction, which is what is being learned).
+                    calRun.potBy = calRun.potBy or {
+                    }
+                    local own = res / math.max(0.5, Units.nudge(idValue))
+                    local mark = Units.passive(idValue).mark
+                    if mark then
+                        own = own + mark.dot * stats.damage.Value
+                    end
+                    calRun.potBy [idValue] = (calRun.potBy [idValue] or 0) + own * now2
                 end
             end
         end
@@ -40229,6 +42094,12 @@ function Match.calMerge(arg1)
     end
     local cal = Simulator.cal(Simulator.calKey(Match.key, Match.ld, Match.challenge, Match.rotation))
     cal.n = (tonumber(cal.n) or 0) + 1
+    -- Each field counts its own observations (2.21): a match can say a lot about enemy speed and nothing
+    -- about yen, and a field seen for the first time after many matches should not get a tiny weight.
+    -- Fields saved before 2.21 start from the old shared count.
+    cal.nf = type(cal.nf) == "table" and cal.nf or {
+    }
+    -- Per-wave tables (skip votes, timers) keep the shared step.
     local value = math.max(0.2, 1 / cal.n)
     local function helper(arg1)
         if # arg1 == 0 then
@@ -40239,7 +42110,10 @@ function Match.calMerge(arg1)
     end
     local function helper2(arg1, arg2)
         if arg2 then
-            cal [arg1] = cal [arg1] and (cal [arg1] + (arg2 - cal [arg1]) * value) or arg2
+            local seen = (tonumber(cal.nf [arg1]) or (cal [arg1] ~= nil and (cal.n - 1) or 0)) + 1
+            cal.nf [arg1] = seen
+            local step = math.max(0.2, 1 / seen)
+            cal [arg1] = cal [arg1] and (cal [arg1] + (arg2 - cal [arg1]) * step) or arg2
         end
     end
     Match.hpRun = helper(calRun.hp)
@@ -40642,6 +42516,197 @@ function Match.trialSaving()
     return true
 end
 
+-- ===== Rollout from the match as it stands (2.22) =====
+-- When the economy is about to buy a farm while enemies already get some way down the road, the
+-- simulator plays the next ROLL_WAVES waves from this very moment twice (enemies ×ROLL_HP, for a margin):
+-- with the farm, and with the best damage buy instead; later buys follow the usual rule in both. Only
+-- when the farm branch loses the base, or keeps clearly less of it (ROLL_MARGIN of its health), does the
+-- damage buy go first. At most once a wave; any failure keeps the economy's own choice.
+Match.ROLL_WAVES, Match.ROLL_HP, Match.ROLL_MARGIN, Match.ROLL_PRESSURE = 5, 1.1, 0.1, 0.3
+
+function Match.rollState()
+    local units = {
+    }
+    for _, member in ipairs(Match.team or {
+    }) do
+        table.insert(units, member.u)
+    end
+    local entries = Simulator.teamFrom(units, Match.info.map)
+    local byUuid, byId = {
+    }, {
+    }
+    for _, entry in ipairs(entries) do
+        if entry.u and entry.u.uuid then
+            byUuid [entry.u.uuid] = entry
+        end
+        byId [entry.id] = byId [entry.id] or entry
+    end
+    local towers = {
+    }
+    for _, model in ipairs(Match.mine or {
+    }) do
+        local stats = model._stats
+        local id = stats.id.Value
+        local uuid = stats:FindFirstChild("uuid") and stats.uuid.Value
+        local entry = (uuid and byUuid [uuid]) or byId [id]
+        if entry and entry.id == id then
+            table.insert(towers, {
+                e = entry,
+                lvl = stats:FindFirstChild("upgrade") and tonumber(stats.upgrade.Value) or 0,
+                m = model
+            })
+        end
+    end
+    local alive = {
+    }
+    for _, enemy in ipairs(Match.enemies or {
+    }) do
+        table.insert(alive, {
+            hp = enemy.hp,
+            p = enemy.prog,
+            fly = enemy.fly
+        })
+    end
+    local calRun = Match.calRun
+    local baseFrac = calRun and tonumber(calRun.lastBase) and tonumber(calRun.baseHp) and calRun.baseHp > 0 and Utils.clamp(calRun.lastBase / calRun.baseHp, 0, 1) or 1
+    return {
+        wave = Match.wave(),
+        money = Match.money(),
+        baseFrac = baseFrac,
+        towers = towers,
+        alive = alive
+    }, entries, byUuid, byId
+end
+
+-- The start of one branch: the state with one buy made (nil when the buy cannot be matched to a unit).
+function Match.rollBranch(state, byUuid, byId, option)
+    local towers = {
+    }
+    for i, tower in ipairs(state.towers) do
+        towers [i] = {
+            e = tower.e,
+            lvl = tower.lvl,
+            m = tower.m
+        }
+    end
+    local money = state.money
+    if option then
+        local member = option.e
+        local entry = member and ((member.uuid and byUuid [member.uuid]) or (member.u and member.u.uuid and byUuid [member.u.uuid]) or byId [member.id])
+        if not entry then
+            return nil
+        end
+        money = money - (tonumber(option.cost) or 0)
+        if option.place then
+            table.insert(towers, {
+                e = entry,
+                lvl = 0
+            })
+        else
+            local found = false
+            for _, tower in ipairs(towers) do
+                if option.m and tower.m == option.m then
+                    tower.lvl, found = tower.lvl + 1, true
+                    break
+                end
+            end
+            if not found then
+                return nil
+            end
+        end
+    end
+    return {
+        wave = state.wave,
+        money = money,
+        baseFrac = state.baseFrac,
+        towers = towers,
+        alive = state.alive
+    }
+end
+
+-- Is a branch's outcome clearly better than another's? Holding beats falling, then more base left.
+function Match.rollBetter(b, a)
+    if not b then
+        return false
+    end
+    if not a then
+        return true
+    end
+    if b.won and not a.won then
+        return true
+    end
+    if a.won and not b.won then
+        return false
+    end
+    if not a.won then
+        return (b.wave or 0) > (a.wave or 0)
+    end
+    return (b.baseLeft or 0) >= (a.baseLeft or 0) + Match.ROLL_MARGIN
+end
+
+function Match.rollCheck(choice, options, ctx)
+    if Config.rollout == false or not (choice and choice.farm and Match.info) then
+        return choice
+    end
+    if Match.random or Match.trialId or Match.trainee or Match.joinedMid or ctx.leak or (ctx.attackers or 0) < 1 then
+        return choice
+    end
+    if (ctx.pressure or 0) < Match.ROLL_PRESSURE then
+        return choice
+    end
+    local wave = Match.wave()
+    if wave < 1 or Match.rollW == wave then
+        return choice
+    end
+    local alt
+    for _, option in ipairs(options) do
+        if not option.farm and option.e and (tonumber(option.cost) or math.huge) <= (ctx.money or 0) and (option.gain or 0) > 0 and not Units.allyBuff(option.e.id) then
+            if not alt or option.gain / math.max(1, option.cost) > alt.gain / math.max(1, alt.cost) then
+                alt = option
+            end
+        end
+    end
+    if not alt then
+        return choice
+    end
+    Match.rollW = wave
+    local state, entries, byUuid, byId = Match.rollState()
+    local horizon = math.min(tonumber(Match.info.total) or (state.wave + Match.ROLL_WAVES), state.wave + Match.ROLL_WAVES)
+    local function run(option)
+        local start = Match.rollBranch(state, byUuid, byId, option)
+        if not start then
+            return nil
+        end
+        local ok, res = pcall(Simulator.run, Match.info, entries, {
+            hpMul = Match.ROLL_HP,
+            start = start,
+            horizon = horizon
+        })
+        return ok and res or nil
+    end
+    local farmRun = run(choice)
+    if not farmRun then
+        return choice
+    end
+    if farmRun.won and (farmRun.baseLeft or 0) >= state.baseFrac - 0.02 then
+        return choice
+    end
+    local damageRun = run(alt)
+    if not Match.rollBetter(damageRun, farmRun) then
+        return choice
+    end
+    if Match.money() < (tonumber(alt.cost) or math.huge) then
+        return choice
+    end
+    local function said(res)
+        return res.won and string.format("holds to wave %d with %d%% of the base", res.wave or horizon, math.floor((res.baseLeft or 0) * 100 + 0.5)) or string.format("falls at wave %d", res.wave or 0)
+    end
+    local why = string.format("the simulator from this moment (next %d waves, enemies ×%.1f): with %s the base %s, with %s it %s", horizon - state.wave, Match.ROLL_HP, choice.what or "the farm", said(farmRun), alt.what or "more damage", said(damageRun))
+    Match.rollSwitched = (Match.rollSwitched or 0) + 1
+    App.log(1, "ECON", "damage before the farm: " .. why)
+    return alt, why
+end
+
 function Match.econ()
     if Match.noBuy then
         return App.status("Economy", "keeping the last life: back to the lobby")
@@ -40765,6 +42830,13 @@ function Match.econ()
             end
         end
     end
+    -- Attackers on the field are counted before the options (2.23), the same for every unit of the team.
+    for _, member in ipairs(team) do
+        if not Units.isFarm(member.id) and # (placedByUuid [member.uuid] or {
+        }) > 0 then
+            attackers = attackers + 1
+        end
+    end
     for _, member in ipairs(team) do
         local studyLastWave = Match.trialId and Brain.trial and Brain.trial.study and wave >= (tonumber(Match.total) or math.huge)
         if Match.trialId and not Match.studyTeam and not studyLastWave and member.id ~= Match.trialId and not Units.isFarm(member.id) and (Match.trialSaving() or (not Units.allyBuff(member.id) and (Match.pressure or 0) < 0.6)) then
@@ -40788,9 +42860,6 @@ function Match.econ()
         local copies = placedByUuid [member.uuid] or {
         }
         local trainBonus = Match.trainee == member.uuid and Training.BONUS or 1
-        if not isFarm and # copies > 0 then
-            attackers = attackers + 1
-        end
         for _, copy in ipairs(copies) do
             if copy._stats.id.Value == member.id and not ((Match.upFail [copy] or 0) >= 3 and Utils.now() - (Match.upFailAt [copy] or 0) < 60) then
                 local level = copy._stats.upgrade.Value
@@ -40829,7 +42898,7 @@ function Match.econ()
                     elseif Match.mergeHold(copy) then
                     else
                         local shieldHp, shieldCount = Match.shieldNow()
-                        local gain = (shieldHp > 0 and Economy.shieldGain(Match.liveDps(copy, member.id), rows [level], Units.dps(member.u, level + 1, Match.mod), nextRow, shieldHp, shieldCount, 1, Match.info and Match.info.eff) or Economy.upgradeGain(Match.liveDps(copy, member.id), rows, level, cost, upCostMul, Units.dps(member.u, level + 1, Match.mod))) * trainBonus * Match.mergeBoost(copy) * Match.airBoost(copy) * Match.reach(copy) * Match.focusGain(copy)
+                        local gain = (shieldHp > 0 and Economy.shieldGain(Match.liveDps(copy, member.id), rows [level], Units.dps(member.u, level + 1, Match.mod), nextRow, shieldHp, shieldCount, 1, Match.info and Match.info.eff) or Economy.upgradeGain(Match.liveDps(copy, member.id), rows, level, cost, upCostMul, Units.dps(member.u, level + 1, Match.mod), Match.reachOf(copy))) * trainBonus * Match.mergeBoost(copy) * Match.airBoost(copy) * Match.reach(copy) * Match.focusGain(copy)
                         local bleedGain = Match.bleedGain(member.id, level, false)
                         gain = gain + bleedGain
                         gain = gain + Match.buffWider(member, copy, rows [level], nextRow)
@@ -41055,17 +43124,25 @@ function Match.econ()
                 break
             end
             local ok, enemies, reward = pcall(Simulator.wave, Match.info, nextWave)
-            local hp = 0
+            local hp, airHp = 0, 0
             for _, enemy in ipairs(ok and enemies or {
             }) do
                 hp = hp + enemy.hp + (enemy.bar or 0)
+                if enemy.fly then
+                    airHp = airHp + enemy.hp + (enemy.bar or 0)
+                end
             end
             table.insert(coming, {
                 hp = hp / (1 - reduction),
+                airHp = airHp / (1 - reduction),
                 reward = (ok and tonumber(reward)) or Match.waveReward(nextWave)
             })
         end
         Match.comingW, Match.coming = wave, coming
+        Match.comingAir = false
+        for _, item in ipairs(coming) do
+            Match.comingAir = Match.comingAir or (item.airHp or 0) > 0
+        end
     end
     local eff = Match.info and Match.info.eff or Simulator.PRIOR.eff
     local teamShield = Match.teamShield()
@@ -41092,6 +43169,7 @@ function Match.econ()
         future = futureYen,
         wantLeft = wantLeft,
         coming = Match.coming,
+        airShare = Match.comingAir and Match.airShare() or nil,
         waveSec = Match.info and Match.info.waveSec,
         eff = eff,
         teamDps = (Match.teamDps or 0) * eff,
@@ -41103,7 +43181,8 @@ function Match.econ()
         leak = Match.depth and Match.depth.leak,
         airLeak = Match.depth and Match.depth.airLeak,
         cover = Match.depth and Match.depth.units > 0 and Match.depth.covEnd or nil,
-        incomeRate = Match.incomeRate or (((Match.coming and Match.coming [1] and Match.coming [1].reward) or 500) + farmIncome) / ((Match.info and Match.info.waveSec) or 20)
+        incomeRate = Match.incomeRate or (((Match.coming and Match.coming [1] and Match.coming [1].reward) or 500) + farmIncome) / ((Match.info and Match.info.waveSec) or 20),
+        farmLeft = Match.infinite and Match.infLeft(Brain.infRuns and Brain.infRuns [Match.key], wave) or nil
     }
     -- The planner chose "save for Fusion" for this lineup: while the defense holds, yen goes only to
     -- one Carrot and one Vego (and farms) until the first Fused Hero stands.
@@ -41122,6 +43201,14 @@ function Match.econ()
         Match.fusionPause = not focus and focusWhy or nil
     end
     local choice, why, waitText = Economy.decide(options, ctx)
+    if choice and choice.farm and not waitText then
+        local ok, rolled, rolledWhy = pcall(Match.rollCheck, choice, options, ctx)
+        if ok and rolled and rolled ~= choice then
+            choice, why = rolled, rolledWhy
+        elseif not ok then
+            App.log(2, "ERROR", "rollout: " .. tostring(rolled))
+        end
+    end
     if savingNote then
         why = why and (savingNote .. " · " .. why) or nil
         waitText = waitText and (savingNote .. " · " .. waitText) or nil
@@ -42439,22 +44526,20 @@ function Match.actives()
                         end
                     end
                     local now22 = now2 - Match.readySince [unit]
-                    local abilityHold = math.min(Config.abilityHold * math.max(1, activeAttackCooldown.Value / 60), activeAttackCooldown.Value * 0.3)
-                    local value = math.max(3, math.floor(# Match.enemies * 0.3))
-                    local overkill = (activeAttackCooldown.Value >= 45) and not flag and not nearBase and count <= 2 and (Match.teamDps or 0) > 0 and inRangeHp < (Match.teamDps * 0.25)
                     if Match.trialId == stats.id.Value and (tonumber((Core.Units [Match.trialId] or {
                     }).damage) or 0) <= 0 and # Match.enemies > 0 then
                         fusionReady, str = true, "on trial"
-                    elseif count > 0 and flag then
-                        fusionReady, str = true, "a boss is in range"
-                    elseif count > 0 and nearBase then
-                        fusionReady, str = true, "emergency: enemy near base"
-                    elseif not overkill and count >= value then
-                        fusionReady, str = true, count .. " enemies in range"
-                    elseif not overkill and count >= 3 and now22 >= abilityHold * 0.5 then
-                        fusionReady, str = true, string.format("%d enemies in range after %ds", count, math.floor(now22))
-                    elseif not overkill and count >= 1 and now22 >= abilityHold then
-                        fusionReady, str = true, string.format("held %ds for a crowd, firing on %d", math.floor(now22), count)
+                    else
+                        fusionReady, str = Units.castDecision({
+                            count = count,
+                            boss = flag,
+                            nearBase = nearBase,
+                            crowd = # Match.enemies,
+                            held = now22,
+                            cd = activeAttackCooldown.Value,
+                            inRangeHp = inRangeHp,
+                            teamDps = Match.teamDps or 0
+                        })
                     end
                 end
                 if fusionReady and isRelay and Match.buffBusy then
@@ -42943,21 +45028,35 @@ function Match.effectText(effect)
     return string.format("%s%s %s", tostring(effect.type), effect.stat and ("." .. tostring(effect.stat)) or "", tostring(effect.amount))
 end
 
+-- A unit's share of the real damage is compared with its share of the damage it could deal. Since
+-- 2.21 "could deal" is summed second by second over the match while the unit stood and had a target
+-- (Match.measure, calRun.potBy): a unit placed or upgraded late is no longer judged as if it had
+-- fought the whole match at its final level. Without that record, the old end-of-match snapshot.
 function Match.learn()
     local list, list2 = {
     }, {
     }
     local count, count2 = 0, 0
+    local potBy = Match.calRun and Match.calRun.potBy
+    local timed = false
+    for _, value in pairs(potBy or {
+    }) do
+        timed = timed or value > 0
+    end
     for _, unit in ipairs(Match.mine) do
         local stats = unit._stats
         local idValue = stats.id.Value
         local totalDamageValue = stats:FindFirstChild("total_damage") and stats.total_damage.Value or 0
         if not Units.isFarm(idValue) then
             list [idValue] = (list [idValue] or 0) + totalDamageValue
-            list2 [idValue] = (list2 [idValue] or 0) + Match.liveDps(unit, idValue) / math.max(0.5, Units.nudge(idValue))
-            local mark = Units.passive(idValue).mark
-            if mark then
-                list2 [idValue] = list2 [idValue] + mark.dot * stats.damage.Value
+            if timed then
+                list2 [idValue] = potBy [idValue] or 0
+            else
+                list2 [idValue] = (list2 [idValue] or 0) + Match.liveDps(unit, idValue) / math.max(0.5, Units.nudge(idValue))
+                local mark = Units.passive(idValue).mark
+                if mark then
+                    list2 [idValue] = list2 [idValue] + mark.dot * stats.damage.Value
+                end
             end
             count = count + totalDamageValue
         end
@@ -43338,6 +45437,36 @@ function Match.airWeight(arg1)
         return 1
     end
     return Match.airLow() and 2.5 or 1.5
+end
+
+-- Road a placed unit would reach with a given range, for judging range upgrades (cached 5 s).
+Match.reachOfCache = setmetatable({
+}, {
+    __mode = "k"
+})
+
+function Match.reachOf(m)
+    local ok, pos = pcall(function()
+        return m:GetPivot().Position
+    end)
+    if not ok or not pos or not Match.samples or # Match.samples == 0 then
+        return nil
+    end
+    local scale = (Match.info and tonumber(Match.info.rangeScale)) or 1
+    return function(range)
+        local key = math.floor(range * scale * 2 + 0.5)
+        local byUnit = Match.reachOfCache [m]
+        if not byUnit or Utils.now() - byUnit.t > 5 then
+            byUnit = {
+                t = Utils.now()
+            }
+            Match.reachOfCache [m] = byUnit
+        end
+        if byUnit [key] == nil then
+            byUnit [key] = Match.cover(pos, range * scale)
+        end
+        return byUnit [key]
+    end
 end
 
 function Match.reach(m)
@@ -44877,6 +47006,13 @@ function Match.finish()
         end
         rec.sec = rec.sec + value
         rec.timed = (tonumber(rec.timed) or 0) + 1
+        -- Wins and losses apart (2.21): a loss can be much shorter or longer than a win, and can pay too.
+        if victory then
+            rec.winSec, rec.winTimed = (tonumber(rec.winSec) or 0) + value, (tonumber(rec.winTimed) or 0) + 1
+        else
+            rec.lossSec, rec.lossTimed = (tonumber(rec.lossSec) or 0) + value, (tonumber(rec.lossTimed) or 0) + 1
+            rec.lossGems = (tonumber(rec.lossGems) or 0) + gemReward
+        end
         if sameRotation then
             rec.rotationStats.sec = rec.rotationStats.sec + value
             rec.rotationStats.timed = rec.rotationStats.timed + 1
@@ -44894,6 +47030,21 @@ function Match.finish()
         end
     end
     rec.gems = rec.gems + gemReward
+    if Match.infinite and not Match.joinedMid and Match.key then
+        Brain.infRuns = type(Brain.infRuns) == "table" and Brain.infRuns or {
+        }
+        local runs = type(Brain.infRuns [Match.key]) == "table" and Brain.infRuns [Match.key] or {
+        }
+        table.insert(runs, {
+            w = Match.wave(),
+            g = gemReward,
+            s = value
+        })
+        while # runs > Match.INF_RUNS do
+            table.remove(runs, 1)
+        end
+        Brain.infRuns [Match.key] = runs
+    end
     rec.coins = rec.coins + resource
     rec.last = os.time()
     local lossStreak = live and (sameRotation and rec.rotationStats and rec.rotationStats.streak or 0) or (rec.streak or 0)
@@ -44953,6 +47104,13 @@ function Match.finish()
         items = list,
         at = os.time()
     }
+    do
+        local okInfo, matchInfo = pcall(Discord.matchInfo)
+        if not okInfo then
+            App.log(1, "ERROR", "discord match info: " .. tostring(matchInfo))
+        end
+        pcall(Discord.onMatch, Brain.lastResult, Match.joinedMid, nil, okInfo and matchInfo or nil)
+    end
     table.insert(Brain.history, 1, {
         key = key,
         won = victory,
@@ -46040,6 +48198,7 @@ function Match.run()
                 local value = Match.total and wave >= Match.total and (enemyCount > 0 or Utils.now() - Match.emptyAt < 30)
                 if workspace._DATA.GameStarted.Value and Utils.now() - now2 > (value and 1800 or 360) then
                     App.log(1, "MATCH", string.format("no progress for %d min — back to the lobby", value and 30 or 6))
+                    pcall(Discord.alert, "No progress", string.format("%s: no progress for %d min — back to the lobby", Match.label(), value and 30 or 6))
                     App.flush()
                     now2 = Utils.now()
                     App.request("lobby", "teleport_back_to_lobby")
@@ -46070,7 +48229,8 @@ Reports.SETTINGS_SKIP = {
     shareNoticed = true,
     shareChosen = true,
     autoTeamChosen = true,
-    studiedSeeded = true
+    studiedSeeded = true,
+    discordUrl = true
 }
 
 function Reports.settingsOf()
@@ -46466,6 +48626,1123 @@ function Reports.fit(arg1)
     arg1.placed, arg1.plan = nil, nil
     return Utils.json(arg1):sub(1, 3900)
 end
+
+-- ===== Discord notifications and Auto Rejoin (2.12)
+-- Your own Discord webhook: a message after each match, a session summary every few hours and alerts
+-- (farm stopped or paused, no progress, disconnects). Posts go through a queue: one message every few
+-- seconds at most, up to 10 results in one message, and Discord's "slow down" (429) is obeyed.
+Discord.MIN_GAP = 4
+Discord.MAX_QUEUE = 30
+Discord.BATCH = 10
+Discord.MAX_TRIES = 3
+Discord.ALERT_GAP = 600
+Discord.NEW_SESSION = 2 * 3600
+Discord.HOSTS = {
+    ["discord.com"] = true,
+    ["discordapp.com"] = true,
+    ["ptb.discord.com"] = true,
+    ["canary.discord.com"] = true
+}
+Discord.COLORS = {
+    won = 5763719,
+    lost = 15548997,
+    alert = 16753920,
+    summary = 5793266,
+    test = 10070709
+}
+Discord.queue = {
+}
+Discord.stats = {
+    sent = 0,
+    dropped = 0,
+    failed = 0
+}
+Discord.alertAt = {
+}
+Discord.nextAt = 0
+
+function Discord.clean(url)
+    if type(url) ~= "string" then
+        return ""
+    end
+    return (url:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+-- host, id, token of a webhook link, or nil
+function Discord.parts(url)
+    url = Discord.clean(url)
+    local host, id, token = url:match("^https://([%w%.]+)/api/webhooks/(%d+)/([%w_%-]+)$")
+    if not host then
+        host, id, token = url:match("^https://([%w%.]+)/api/v%d+/webhooks/(%d+)/([%w_%-]+)$")
+    end
+    if host and Discord.HOSTS [host:lower()] and # id >= 15 and # token >= 30 then
+        return host:lower(), id, token
+    end
+    return nil
+end
+
+function Discord.validUrl(url)
+    return Discord.parts(url) ~= nil
+end
+
+-- what the window shows instead of the link: the token stays hidden
+function Discord.mask(url)
+    local host, id = Discord.parts(url)
+    if not host then
+        return "no webhook"
+    end
+    return string.format("%s webhook %s…%s (key hidden)", host, id:sub(1, 4), id:sub(-2))
+end
+
+-- nil = empty text (nothing to do), false + why = not a webhook link, true = good
+function Discord.check(text)
+    text = Discord.clean(text)
+    if text == "" then
+        return nil
+    end
+    if not Discord.validUrl(text) then
+        return false, "that isn't a Discord webhook link: it starts with https://discord.com/api/webhooks/"
+    end
+    return true, "webhook saved — press Send Test"
+end
+
+function Discord.on()
+    return Discord.validUrl(Config.discordUrl) and not Discord.broken
+end
+
+-- cuts on a whole UTF-8 character
+function Discord.cut(text, n)
+    text = tostring(text or "")
+    if # text <= n then
+        return text
+    end
+    local at = n - 3
+    while at > 0 do
+        local byte = text:byte(at + 1) or 0
+        if byte < 0x80 or byte >= 0xC0 then
+            break
+        end
+        at -= 1
+    end
+    return text:sub(1, at) .. "..."
+end
+
+function Discord.push(kind, embed, now)
+    if not Discord.on() then
+        return false
+    end
+    if kind == "match" and not Config.discordMatches then
+        return false
+    end
+    if kind == "alert" and not Config.discordAlerts then
+        return false
+    end
+    embed.color = embed.color or Discord.COLORS [kind] or Discord.COLORS.alert
+    table.insert(Discord.queue, {
+        kind = kind,
+        embed = embed,
+        at = now or os.time(),
+        tries = 0
+    })
+    while # Discord.queue > Discord.MAX_QUEUE do
+        -- the oldest match result goes first; alerts and summaries stay
+        local drop = 1
+        for i, item in ipairs(Discord.queue) do
+            if item.kind == "match" then
+                drop = i
+                break
+            end
+        end
+        table.remove(Discord.queue, drop)
+        Discord.stats.dropped += 1
+    end
+    return true
+end
+
+function Discord.request()
+    return (syn and syn.request) or (http and http.request) or http_request or request
+end
+
+-- "ok" | "slow" (+ seconds to wait) | "nohttp" | "error" (+ status code, text)
+function Discord.send(items)
+    local httpRequest = Discord.request()
+    if not httpRequest then
+        return "nohttp"
+    end
+    local embeds, used = Discord.embedsFor(items)
+    local ok, res = pcall(httpRequest, {
+        Url = Discord.clean(Config.discordUrl),
+        Method = "POST",
+        Headers = {
+            ["Content-Type"] = "application/json"
+        },
+        Body = Utils.json({
+            username = "awaqwaa airflow",
+            allowed_mentions = {
+                parse = {
+                }
+            },
+            embeds = embeds
+        })
+    })
+    if not ok or type(res) ~= "table" then
+        return "error", nil, tostring(res)
+    end
+    local code = tonumber(res.StatusCode or res.Status) or 0
+    if code >= 200 and code < 300 then
+        return "ok", code, nil, nil, used
+    end
+    if code == 429 then
+        local headers = type(res.Headers) == "table" and res.Headers or {
+        }
+        local wait = tonumber(headers ["retry-after"] or headers ["Retry-After"])
+        if not wait and type(res.Body) == "string" then
+            wait = tonumber(res.Body:match("\"retry_after\"%s*:%s*([%d%.]+)"))
+        end
+        return "slow", code, nil, wait or 5
+    end
+    return "error", code, type(res.Body) == "string" and res.Body:sub(1, 120) or nil
+end
+
+function Discord.pump(now)
+    now = now or os.time()
+    if Discord.sending or # Discord.queue == 0 or now < Discord.nextAt then
+        return
+    end
+    if not Discord.on() then
+        table.clear(Discord.queue)
+        return
+    end
+    Discord.sending = true
+    local batch = {
+    }
+    for i = 1, math.min(Discord.BATCH, # Discord.queue) do
+        batch [i] = Discord.queue [i]
+    end
+    local ok, status, code, err, wait, used = pcall(Discord.send, batch)
+    Discord.sending = false
+    if not ok then
+        status, err = "error", tostring(status)
+    end
+    if status == "ok" then
+        used = math.clamp(tonumber(used) or # batch, 1, # batch)
+        for _ = 1, used do
+            table.remove(Discord.queue, 1)
+        end
+        Discord.stats.sent += used
+        Discord.stats.lastAt, Discord.lastError = now, nil
+        Discord.nextAt = now + Discord.MIN_GAP
+    elseif status == "slow" then
+        Discord.nextAt = now + math.max(1, math.ceil(wait))
+        Discord.lastError = string.format("Discord asked to wait %d s", math.ceil(wait))
+    elseif status == "nohttp" then
+        Discord.broken = "your executor can't send web requests"
+        App.log(1, "DISCORD", "not sent: " .. Discord.broken)
+        table.clear(Discord.queue)
+    elseif code == 401 or code == 403 or code == 404 then
+        Discord.broken = string.format("the webhook link doesn't work (%d): it was deleted or is wrong — paste a new one", code)
+        App.log(1, "DISCORD", Discord.broken)
+        table.clear(Discord.queue)
+    else
+        Discord.stats.failed += 1
+        Discord.lastError = string.format("send failed (%s)%s", code and tostring(code) or "no answer", err and (": " .. Discord.cut(err, 80)) or "")
+        local tries = 0
+        for _, item in ipairs(batch) do
+            item.tries += 1
+            tries = math.max(tries, item.tries)
+        end
+        if tries >= Discord.MAX_TRIES then
+            for _ = 1, # batch do
+                table.remove(Discord.queue, 1)
+            end
+            Discord.stats.dropped += # batch
+            App.log(1, "DISCORD", Discord.lastError .. " · gave up on " .. # batch .. " message(s) after " .. tries .. " tries")
+        end
+        Discord.nextAt = now + Discord.MIN_GAP * 2 ^ math.min(tries, 4)
+    end
+end
+
+-- The session: counts since the script started; a rejoin keeps it, a break over 2 hours starts a new one.
+function Discord.session(now)
+    now = now or os.time()
+    local s = Brain.discord
+    if type(s) ~= "table" or now - (tonumber(s.seen) or 0) > Discord.NEW_SESSION then
+        s = {
+            start = now,
+            seen = now,
+            matches = 0,
+            wins = 0,
+            gems = 0,
+            coins = 0,
+            summaryAt = now
+        }
+        Brain.discord = s
+    end
+    return s
+end
+
+function Discord.duration(sec)
+    sec = math.max(0, math.floor(sec))
+    local h, m = math.floor(sec / 3600), math.floor(sec % 3600 / 60)
+    return h > 0 and string.format("%dh%02dm", h, m) or string.format("%dm", m)
+end
+
+function Discord.sessionLine(s, now)
+    local sec = now - s.start
+    local pct = s.matches > 0 and math.floor(s.wins / s.matches * 100 + 0.5) or 0
+    -- gems an hour only after 30 minutes: one early win would read as a huge rate
+    local rate = sec >= 1800 and string.format(" (%s an hour)", Utils.fmt(s.gems / (sec / 3600))) or ""
+    return string.format("Session %s: %d match%s · %d won (%d%%) · %s gems%s",
+        Discord.duration(sec), s.matches, s.matches == 1 and "" or "es", s.wins, pct, Utils.fmt(s.gems), rate)
+end
+
+function Discord.coinName()
+    local ok, name = pcall(Modes.coinName)
+    return ok and type(name) == "string" and name or "event coins"
+end
+
+function Discord.itemsText(items)
+    local list = {
+    }
+    for id, count in pairs(type(items) == "table" and items or {
+    }) do
+        local info = Core.Items and Core.Items [id]
+        table.insert(list, string.format("%s ×%s", type(info) == "table" and info.name or tostring(id), tostring(count)))
+    end
+    table.sort(list)
+    return table.concat(list, ", ")
+end
+
+function Discord.matchEmbed(res, s, now, info)
+    local lines = Discord.infoLines(info)
+    local gains = {
+    }
+    if (tonumber(res.gems) or 0) > 0 then
+        table.insert(gains, "💎 " .. Utils.fmt(res.gems) .. " gems")
+    end
+    if (tonumber(res.coins) or 0) > 0 then
+        table.insert(gains, "🪙 " .. Utils.fmt(res.coins) .. " " .. Discord.coinName())
+    end
+    table.insert(lines, # gains > 0 and table.concat(gains, " · ") or "no gems or coins")
+    local items = Discord.itemsText(res.items)
+    if items ~= "" then
+        table.insert(lines, "🎁 " .. items)
+    end
+    local session = Discord.sessionLine(s, now)
+    table.insert(lines, session)
+    return {
+        title = (res.won and "✅ " or "❌ ") .. tostring(res.text or "match"),
+        description = table.concat(lines, "\n"),
+        color = res.won and Discord.COLORS.won or Discord.COLORS.lost,
+        footer = {
+            text = "awaqwaa airflow v" .. Discord.version()
+        },
+        compact = Discord.compactLine(res, info),
+        session = session
+    }
+end
+
+function Discord.onMatch(res, joinedMid, now, info)
+    now = now or os.time()
+    if type(res) ~= "table" then
+        return false
+    end
+    local s = Discord.session(now)
+    s.seen = now
+    if not joinedMid then
+        s.matches += 1
+        if res.won then
+            s.wins += 1
+        end
+    end
+    s.gems += tonumber(res.gems) or 0
+    s.coins += tonumber(res.coins) or 0
+    return Discord.push("match", Discord.matchEmbed(res, s, now, info), now)
+end
+
+function Discord.summaryDue(now)
+    local hours = tonumber(Config.discordSummaryHours) or 0
+    if hours <= 0 or not Discord.on() then
+        return false
+    end
+    local s = Discord.session(now)
+    return now - (tonumber(s.summaryAt) or s.start) >= hours * 3600
+end
+
+function Discord.summary(now)
+    now = now or os.time()
+    local s = Discord.session(now)
+    s.summaryAt = now
+    local lines = {
+        Discord.sessionLine(s, now)
+    }
+    if s.coins > 0 then
+        table.insert(lines, string.format("🪙 %s %s", Utils.fmt(s.coins), Discord.coinName()))
+    end
+    local ok, gems = pcall(Core.cur, "gems")
+    if ok and tonumber(gems) and gems > 0 then
+        table.insert(lines, "💎 gems now: " .. Utils.fmt(gems))
+    end
+    table.insert(lines, "Now: " .. (App.where == "match" and "in a match" or "in the lobby") .. (Farming.lastWhy and (" · " .. Discord.cut(Farming.lastWhy, 200)) or ""))
+    local perfLine = Perf.summaryLine()
+    if perfLine then
+        table.insert(lines, perfLine)
+    end
+    if Discord.stats.dropped > 0 then
+        table.insert(lines, string.format("%d older message(s) were not sent", Discord.stats.dropped))
+    end
+    return Discord.push("summary", {
+        title = "📊 Session summary",
+        description = table.concat(lines, "\n")
+    }, now)
+end
+
+-- The same alert at most once in 10 minutes (a stuck farm would repeat it every few minutes).
+function Discord.alert(title, text, now)
+    now = now or os.time()
+    if now - (Discord.alertAt [title] or -math.huge) < Discord.ALERT_GAP then
+        return false
+    end
+    local pushed = Discord.push("alert", {
+        title = "⚠️ " .. tostring(title),
+        description = tostring(text or "")
+    }, now)
+    if pushed then
+        Discord.alertAt [title] = now
+    end
+    return pushed
+end
+
+function Discord.test(now)
+    if not Discord.validUrl(Config.discordUrl) then
+        return false, "paste your webhook link first"
+    end
+    Discord.broken = nil
+    Discord.push("test", {
+        title = "🔔 awaqwaa airflow can post here",
+        description = string.format("Match results: %s · summary: %s · alerts: %s · Auto Rejoin: %s",
+            Config.discordMatches and "on" or "off",
+            (tonumber(Config.discordSummaryHours) or 0) > 0 and ("every " .. Config.discordSummaryHours .. " h") or "off",
+            Config.discordAlerts and "on" or "off",
+            Config.autoRejoin and "on" or "off")
+    }, now)
+    return true, "test message queued: it should show up in your channel in a few seconds"
+end
+
+function Discord.tick(now)
+    now = now or os.time()
+    Discord.session(now).seen = now
+    if Discord.summaryDue(now) then
+        Discord.summary(now)
+    end
+    Discord.pump(now)
+end
+
+function Discord.loop()
+    while App.alive do
+        local ok, err = pcall(Discord.tick)
+        if not ok then
+            App.log(1, "ERROR", "discord: " .. tostring(err))
+        end
+        task.wait(1)
+    end
+end
+
+function Discord.statusText(now)
+    now = now or os.time()
+    local line
+    if not Discord.validUrl(Config.discordUrl) then
+        line = "Discord: no webhook yet. In Discord: channel settings → Integrations → Webhooks → New Webhook → Copy Webhook URL, then paste it above."
+    else
+        line = "Discord: " .. Discord.mask(Config.discordUrl)
+        if Discord.broken then
+            line ..= " · stopped: " .. Discord.broken
+        else
+            line ..= string.format(" · sent %d · waiting %d", Discord.stats.sent, # Discord.queue)
+            if Discord.stats.lastAt then
+                line ..= " · last " .. os.date("%H:%M", Discord.stats.lastAt)
+            end
+            if Discord.lastError then
+                line ..= " · " .. Discord.lastError
+            end
+        end
+    end
+    return line .. "\n" .. Rejoin.statusText(now)
+end
+
+-- Auto Rejoin: Roblox shows an error window (lost connection, timeout, server shut down) → wait, then
+-- teleport to the lobby. The script starts again by itself there (queue_on_teleport) and the farm goes on.
+Rejoin.WINDOW = 15 * 60
+Rejoin.MAX = 3
+Rejoin.DELAY = 10
+Rejoin.YES = {
+    [266] = "connection timed out",
+    [277] = "lost connection",
+    [278] = "idle for 20 minutes",
+    [279] = "couldn't connect",
+    [260] = "bad data from the server",
+    [261] = "bad data from the server",
+    [262] = "bad data from the server",
+    [529] = "Roblox service error"
+}
+Rejoin.NO = {
+    [264] = "the account joined from another device",
+    [267] = "kicked by the game",
+    [268] = "Roblox flagged unexpected client behaviour",
+    [273] = "the account joined from another device",
+    [600] = "banned"
+}
+Rejoin.NO_WORDS = {
+    "banned",
+    "another device",
+    "different device",
+    "unexpected client",
+    "exploit"
+}
+Rejoin.YES_WORDS = {
+    "lost connection",
+    "internet connection",
+    "timed out",
+    "shut down",
+    "shutting down",
+    "server restart"
+}
+
+function Rejoin.state(now)
+    now = now or os.time()
+    local state = Brain.rejoin
+    if type(state) ~= "table" then
+        state = {
+        }
+        Brain.rejoin = state
+    end
+    local tries = {
+    }
+    for _, at in ipairs(type(state.tries) == "table" and state.tries or {
+    }) do
+        if tonumber(at) and now - at < Rejoin.WINDOW then
+            table.insert(tries, at)
+        end
+    end
+    state.tries = tries
+    return state
+end
+
+-- ok, why, delay (s), disconnected (false = not a lost connection at all: a teleport error the game
+-- handles, or something unknown; those are only logged)
+function Rejoin.decide(code, msg, now, tries)
+    code = tonumber(code)
+    msg = tostring(msg or ""):lower()
+    if (code and code >= 769 and code <= 773) or msg:find("teleport", 1, true) then
+        return false, "a teleport error (the game retries it)", nil, false
+    end
+    local why
+    local closed = msg:find("update", 1, true) or msg:find("shut", 1, true) or msg:find("restart", 1, true)
+    if code == 267 and closed and not msg:find("ban", 1, true) then
+        why = "the game closed the server (update or restart)"
+    elseif code and Rejoin.NO [code] then
+        return false, Rejoin.NO [code], nil, true
+    else
+        for _, word in ipairs(Rejoin.NO_WORDS) do
+            if msg:find(word, 1, true) then
+                return false, "the message says \"" .. word .. "\"", nil, true
+            end
+        end
+        if msg:find("kick", 1, true) then
+            return false, "kicked by the game", nil, true
+        end
+        why = code and Rejoin.YES [code]
+        if not why then
+            for _, word in ipairs(Rejoin.YES_WORDS) do
+                if msg:find(word, 1, true) then
+                    why = word
+                    break
+                end
+            end
+        end
+        if not why then
+            return false, "not a connection problem", nil, false
+        end
+    end
+    if not Config.autoRejoin then
+        return false, "Auto Rejoin is off", nil, true
+    end
+    local recent = 0
+    for _, at in ipairs(tries or {
+    }) do
+        if now - at < Rejoin.WINDOW then
+            recent += 1
+        end
+    end
+    if recent >= Rejoin.MAX then
+        return false, string.format("already tried %d times in %d min", recent, Rejoin.WINDOW / 60), nil, true
+    end
+    return true, why, Rejoin.DELAY * 2 ^ recent, true
+end
+
+function Rejoin.onError(msg, code, now)
+    now = now or os.time()
+    msg = tostring(msg or "")
+    code = tonumber(code) or tonumber(msg:match("[Ee]rror [Cc]ode:?%s*(%d+)"))
+    if code == 0 then
+        code = nil
+    end
+    if (msg == "" and not code) or Rejoin.busy then
+        return false
+    end
+    local state = Rejoin.state(now)
+    -- both signals (the event and the error window) arrive for one error: act once
+    local short = Discord.cut(msg, 200)
+    local seen = Rejoin.seen
+    if type(seen) == "table" and seen.msg == short and seen.code == code and now - seen.at < 10 then
+        return false
+    end
+    Rejoin.seen = {
+        msg = short,
+        code = code,
+        at = now
+    }
+    local ok, why, delay, disconnected = Rejoin.decide(code, msg, now, state.tries)
+    local head = string.format("Roblox error %s: %s", code and tostring(code) or "?", Discord.cut(msg, 160))
+    App.log(1, "REJOIN", head .. " → " .. (ok and string.format("rejoining in %d s (%s)", delay, why) or ("not rejoining: " .. why)))
+    if not disconnected then
+        return false
+    end
+    state.last = {
+        code = code,
+        msg = short,
+        at = now,
+        rejoin = ok,
+        why = why
+    }
+    if not ok then
+        Discord.alert("Disconnected", head .. "\nNot rejoining: " .. why, now)
+        App.saveNow()
+        return false
+    end
+    Rejoin.busy = true
+    table.insert(state.tries, now)
+    state.pending = {
+        code = code,
+        why = why,
+        at = now
+    }
+    Discord.alert("Disconnected, rejoining", head .. string.format("\nRejoining in %d s (%s) · try %d of %d in 15 min", delay, why, # state.tries, Rejoin.MAX), now)
+    App.saveNow()
+    task.spawn(function()
+        task.wait(delay)
+        Rejoin.go()
+    end)
+    return true, delay
+end
+
+function Rejoin.go()
+    local place = tonumber(Brain.lobbyPlace) or game.PlaceId
+    local TeleportService = game:GetService("TeleportService")
+    for attempt = 1, 5 do
+        App.log(1, "REJOIN", string.format("teleport to %s (place %d, try %d)", place == Brain.lobbyPlace and "the lobby" or "this place", place, attempt))
+        pcall(App.flush)
+        local ok, err = pcall(function()
+            TeleportService:Teleport(place, LocalPlayer)
+        end)
+        if not ok then
+            App.log(1, "REJOIN", "teleport failed: " .. tostring(err))
+        end
+        task.wait(20)
+    end
+    Rejoin.busy = false
+end
+
+function Rejoin.watch()
+    local GuiService = game:GetService("GuiService")
+    local function codeNow()
+        local ok, code = pcall(function()
+            return GuiService:GetErrorCode().Value
+        end)
+        return ok and tonumber(code) or nil
+    end
+    table.insert(App.conns, GuiService.ErrorMessageChanged:Connect(function(msg)
+        Rejoin.onError(msg, codeNow())
+    end))
+    -- some executors miss the event: the error window itself is a second signal
+    task.spawn(function()
+        pcall(function()
+            local overlay = game:GetService("CoreGui"):WaitForChild("RobloxPromptGui", 30):WaitForChild("promptOverlay", 30)
+            table.insert(App.conns, overlay.ChildAdded:Connect(function(child)
+                if child.Name ~= "ErrorPrompt" then
+                    return
+                end
+                task.wait(1)
+                local text = ""
+                pcall(function()
+                    text = child.MessageArea.ErrorFrame.ErrorMessage.Text
+                end)
+                if text == "" then
+                    pcall(function()
+                        text = GuiService:GetErrorMessage()
+                    end)
+                end
+                Rejoin.onError(text, codeNow())
+            end))
+        end)
+    end)
+end
+
+-- After a rejoin: say so in the log and in Discord.
+function Rejoin.afterLoad(now)
+    now = now or os.time()
+    local state = Rejoin.state(now)
+    local pending = state.pending
+    state.pending = nil
+    if type(pending) ~= "table" or now - (tonumber(pending.at) or 0) > 900 then
+        return false
+    end
+    local text = string.format("Back %s after error %s (%s)", Discord.duration(now - pending.at), pending.code and tostring(pending.code) or "?", tostring(pending.why))
+    App.log(1, "REJOIN", text .. " · the farm goes on")
+    Discord.alert("Rejoined", text, now)
+    return true
+end
+
+function Rejoin.statusText(now)
+    now = now or os.time()
+    local state = Rejoin.state(now)
+    local parts = {
+        "Auto Rejoin: " .. (Config.autoRejoin and "on" or "off")
+    }
+    table.insert(parts, tonumber(Brain.lobbyPlace) and "lobby known" or "lobby not seen yet (rejoins this place)")
+    table.insert(parts, string.format("tries in 15 min: %d/%d", # state.tries, Rejoin.MAX))
+    local last = state.last
+    if type(last) == "table" and tonumber(last.at) then
+        table.insert(parts, string.format("last error %s, code %s: %s", os.date("%d.%m %H:%M", last.at), last.code and tostring(last.code) or "?", last.rejoin and ("rejoined, " .. tostring(last.why)) or ("not rejoined, " .. tostring(last.why))))
+    end
+    return table.concat(parts, " · ")
+end
+-- 2.13: what the match was (portal tier and modifiers, element buffs, challenge, dungeon room), read at
+-- the end of the match for the Discord message.
+function Discord.version()
+    return tostring(App.version or "?")
+end
+
+function Discord.pretty(id)
+    return (tostring(id):gsub("^_+", ""):gsub("_damage$", ""):gsub("_", " "))
+end
+
+function Discord.matchInfo()
+    local ld = type(Match.ld) == "table" and Match.ld or {
+    }
+    local info = {
+        kind = Match.kind
+    }
+    if Match.kind == "portal" then
+        info.tier = tonumber(ld.portal_depth) or tonumber(ld._portal_depth) or tonumber(tostring(Match.key or ""):match(":t(%d+)$"))
+        local ctl = type(ld._ctl) == "table" and ld._ctl or {
+        }
+        local mods = type(ld._levelmodifiers) == "table" and ld._levelmodifiers or type(ctl._levelmodifiers) == "table" and ctl._levelmodifiers or {
+        }
+        info.mods = {
+        }
+        for _, mod in pairs(mods) do
+            local id = type(mod) == "table" and mod.id or (type(mod) == "string" and mod) or nil
+            if id then
+                table.insert(info.mods, Discord.pretty(id))
+            end
+        end
+        table.sort(info.mods)
+        local watch = Brain.watch
+        if type(watch) == "table" and watch.used and tonumber(watch.held) then
+            info.portalsLeft = math.max(0, watch.held - 1)
+        end
+    end
+    local challenge = ld._challenge or (Match.kind == "daily" and type(Brain.live) == "table" and type(Brain.live.daily) == "table" and Brain.live.daily.challenge) or nil
+    if challenge then
+        local ok, name = pcall(Modes.chName, challenge)
+        info.challenge = ok and name or Discord.pretty(challenge)
+    end
+    local mod = Match.mod
+    if type(mod) == "table" then
+        info.weak, info.strong = {
+        }, {
+        }
+        for key, amp in pairs(type(mod.weak) == "table" and mod.weak or {
+        }) do
+            table.insert(info.weak, string.format("%s ×%.2f", Discord.pretty(key), tonumber(amp) or 1))
+        end
+        for key, amp in pairs(type(mod.res) == "table" and mod.res or {
+        }) do
+            table.insert(info.strong, string.format("%s ×%.2f", Discord.pretty(key), tonumber(amp) or 1))
+        end
+        for key in pairs(type(mod.strong) == "table" and mod.strong or {
+        }) do
+            table.insert(info.strong, Discord.pretty(key))
+        end
+        table.sort(info.weak)
+        table.sort(info.strong)
+    end
+    if Match.kind == "dungeon" then
+        info.room = tonumber(type(ld._dungeon) == "table" and ld._dungeon.depth)
+        local data = Dungeon.data()
+        if data then
+            info.lives = tonumber(data.lives) or tonumber(type(data.selected_next) == "table" and data.selected_next.lives)
+            local _, chests, rare = Dungeon.res(data)
+            info.chests, info.rare = chests, rare
+            info.curses = Dungeon.curses(data)
+        end
+        local room = type(Brain.dg) == "table" and Brain.dg.room
+        if type(room) == "table" and (not info.room or room.d == info.room) then
+            info.path = room.path
+        end
+    end
+    return info
+end
+
+function Discord.infoLines(info)
+    local lines = {
+    }
+    if type(info) ~= "table" then
+        return lines
+    end
+    if info.kind == "portal" then
+        local parts = {
+            "🌀 Portal" .. (info.tier and (" tier " .. info.tier) or "")
+        }
+        if info.mods and # info.mods > 0 then
+            table.insert(parts, "modifiers: " .. table.concat(info.mods, ", "))
+        end
+        if info.portalsLeft then
+            table.insert(parts, string.format("%d like it left", info.portalsLeft))
+        end
+        table.insert(lines, table.concat(parts, " · "))
+    end
+    if info.challenge then
+        table.insert(lines, "🏆 Challenge: " .. tostring(info.challenge))
+    end
+    if info.kind == "dungeon" then
+        local parts = {
+            "🏰 Room " .. (info.room and tostring(info.room) or "?") .. "/" .. tostring(Dungeon.ROOMS or 20)
+        }
+        if info.lives then
+            table.insert(parts, string.format("%d tr%s left", info.lives, info.lives == 1 and "y" or "ies"))
+        end
+        if info.chests then
+            table.insert(parts, string.format("chests %d + %d rare", info.chests, info.rare or 0))
+        end
+        if (info.curses or 0) > 0 then
+            table.insert(parts, string.format("%d curse%s", info.curses, info.curses == 1 and "" or "s"))
+        end
+        table.insert(lines, table.concat(parts, " · "))
+        if info.path then
+            table.insert(lines, "🧭 Path: " .. tostring(info.path))
+        end
+    end
+    local element = {
+    }
+    if info.weak and # info.weak > 0 then
+        table.insert(element, "enemies take more from " .. table.concat(info.weak, ", "))
+    end
+    if info.strong and # info.strong > 0 then
+        table.insert(element, "resist " .. table.concat(info.strong, ", "))
+    end
+    if # element > 0 then
+        table.insert(lines, "🔥 " .. table.concat(element, " · "))
+    end
+    return lines
+end
+
+-- One line per match for the Compact option.
+function Discord.compactLine(res, info)
+    local parts = {
+        (res.won and "✅ " or "❌ ") .. tostring(res.text or "match")
+    }
+    if (tonumber(res.gems) or 0) > 0 then
+        table.insert(parts, "💎 " .. Utils.fmt(res.gems))
+    end
+    if (tonumber(res.coins) or 0) > 0 then
+        table.insert(parts, "🪙 " .. Utils.fmt(res.coins))
+    end
+    if type(info) == "table" then
+        if info.tier then
+            table.insert(parts, "tier " .. info.tier)
+        end
+        if info.portalsLeft then
+            table.insert(parts, info.portalsLeft .. " left")
+        end
+        if info.kind == "dungeon" and info.lives then
+            table.insert(parts, info.lives .. " tries")
+        end
+    end
+    local items = Discord.itemsText(res.items)
+    if items ~= "" then
+        table.insert(parts, "🎁 " .. items)
+    end
+    return table.concat(parts, " · ")
+end
+
+-- The embeds of one message: Compact puts the match results in one list; the whole message stays under
+-- Discord's 6000-character limit (the rest waits for the next message). Returns embeds, items used.
+Discord.MESSAGE_BUDGET = 5500
+function Discord.embedsFor(items)
+    local embeds, lines, session, used, size = {
+    }, {
+    }, nil, 0, 0
+    local footer = {
+        text = "awaqwaa airflow v" .. Discord.version()
+    }
+    for _, item in ipairs(items) do
+        local cost
+        local compact = Config.discordCompact and item.kind == "match" and item.embed.compact
+        if compact then
+            cost = # compact + 8
+        else
+            cost = # tostring(item.embed.title or "") + # tostring(item.embed.description or "") + 60
+        end
+        if used > 0 and size + cost > Discord.MESSAGE_BUDGET then
+            break
+        end
+        size += cost
+        used += 1
+        if compact then
+            table.insert(lines, os.date("%H:%M", item.at) .. "  " .. compact)
+            session = item.embed.session or session
+        else
+            local embed = table.clone(item.embed)
+            embed.compact, embed.session = nil, nil
+            embed.title = Discord.cut(embed.title, 250)
+            embed.description = Discord.cut(embed.description, math.min(3900, Discord.MESSAGE_BUDGET - 300))
+            embed.timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ", item.at)
+            embed.footer = embed.footer or footer
+            table.insert(embeds, embed)
+        end
+    end
+    if # lines > 0 then
+        local count = # lines
+        if session then
+            table.insert(lines, session)
+        end
+        table.insert(embeds, 1, {
+            title = string.format("🎮 %d match%s", count, count == 1 and "" or "es"),
+            description = Discord.cut(table.concat(lines, "\n"), 3900),
+            color = Discord.COLORS.summary,
+            footer = footer,
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ", items [used].at)
+        })
+    end
+    return embeds, used
+end
+
+-- Performance report: FPS, memory and ping every 5 s. The first 20 s (loading the map) don't count.
+Perf.EVERY = 5
+Perf.WARMUP = 20
+
+function Perf.reset(now)
+    Perf.s = {
+        start = now,
+        n = 0,
+        fpsSum = 0,
+        pingN = 0,
+        pingSum = 0,
+        memMax = 0
+    }
+    Perf.cur = nil
+end
+
+function Perf.add(sample, now)
+    if type(Perf.s) ~= "table" then
+        Perf.reset(now)
+    end
+    local s = Perf.s
+    Perf.cur, Perf.curAt = sample, now
+    if now - s.start < Perf.WARMUP then
+        return false
+    end
+    if tonumber(sample.fps) then
+        s.n += 1
+        s.fpsSum += sample.fps
+        if not s.fpsMin or sample.fps < s.fpsMin then
+            s.fpsMin, s.fpsMinAt = sample.fps, now
+        end
+    end
+    if tonumber(sample.ping) then
+        s.pingN += 1
+        s.pingSum += sample.ping
+    end
+    if tonumber(sample.mem) then
+        s.memFirst = s.memFirst or sample.mem
+        s.memMax = math.max(s.memMax, sample.mem)
+    end
+    if tonumber(sample.lua) then
+        s.luaFirst = s.luaFirst or sample.lua
+    end
+    return true
+end
+
+function Perf.mb(mb)
+    mb = tonumber(mb) or 0
+    if math.abs(mb) >= 1024 then
+        return string.format("%.2f GB", mb / 1024)
+    end
+    return string.format("%d MB", math.floor(mb + 0.5))
+end
+
+function Perf.growth(now, first)
+    if not (now and first) then
+        return ""
+    end
+    local diff = now - first
+    return string.format(" (%s%s since the start)", diff >= 0 and "+" or "−", Perf.mb(math.abs(diff)))
+end
+
+function Perf.text(now)
+    now = now or os.time()
+    local cur, s = Perf.cur, Perf.s
+    if type(cur) ~= "table" then
+        return "Performance: measuring…"
+    end
+    local parts = {
+    }
+    if cur.fps then
+        table.insert(parts, string.format("%d FPS", math.floor(cur.fps + 0.5)))
+    end
+    if cur.mem then
+        table.insert(parts, "memory " .. Perf.mb(cur.mem) .. Perf.growth(cur.mem, s and s.memFirst))
+    end
+    if cur.ping then
+        table.insert(parts, string.format("ping %d ms", math.floor(cur.ping + 0.5)))
+    end
+    if cur.lua then
+        table.insert(parts, "script heap " .. Perf.mb(cur.lua) .. Perf.growth(cur.lua, s and s.luaFirst))
+    end
+    local text = "Now: " .. table.concat(parts, " · ")
+    if type(s) == "table" and s.n > 0 then
+        text ..= string.format("\nSince %s: average %d FPS, worst %d (at %s)%s%s", os.date("%H:%M", s.start), math.floor(s.fpsSum / s.n + 0.5),
+            math.floor(s.fpsMin + 0.5), os.date("%H:%M", s.fpsMinAt),
+            s.pingN > 0 and string.format(" · average ping %d ms", math.floor(s.pingSum / s.pingN + 0.5)) or "",
+            s.memMax > 0 and (" · memory peak " .. Perf.mb(s.memMax)) or "")
+    end
+    return text
+end
+
+function Perf.summaryLine()
+    local cur, s = Perf.cur, Perf.s
+    if type(cur) ~= "table" or type(s) ~= "table" or s.n == 0 then
+        return nil
+    end
+    local parts = {
+        string.format("⚙️ %d FPS average (worst %d)", math.floor(s.fpsSum / s.n + 0.5), math.floor(s.fpsMin + 0.5))
+    }
+    if cur.mem then
+        table.insert(parts, "memory " .. Perf.mb(cur.mem) .. Perf.growth(cur.mem, s.memFirst))
+    end
+    if s.pingN > 0 then
+        table.insert(parts, string.format("ping %d ms", math.floor(s.pingSum / s.pingN + 0.5)))
+    end
+    return table.concat(parts, " · ")
+end
+
+-- One reading from the game: frames counted over the last interval, memory, ping, the script's heap.
+function Perf.read(frames, elapsed)
+    local sample = {
+        fps = elapsed > 0 and frames / elapsed or nil
+    }
+    pcall(function()
+        sample.mem = game:GetService("Stats"):GetTotalMemoryUsageMb()
+    end)
+    pcall(function()
+        sample.ping = game:GetService("Stats").Network.ServerStatsItem ["Data Ping"]:GetValue()
+    end)
+    if not tonumber(sample.ping) then
+        pcall(function()
+            sample.ping = LocalPlayer:GetNetworkPing() * 1000
+        end)
+    end
+    pcall(function()
+        sample.lua = collectgarbage("count") / 1024
+    end)
+    return sample
+end
+
+function Perf.loop()
+    local frames = 0
+    table.insert(App.conns, game:GetService("RunService").Heartbeat:Connect(function()
+        frames += 1
+    end))
+    Perf.reset(os.time())
+    local last = os.clock()
+    while App.alive do
+        task.wait(Perf.EVERY)
+        local now, count = os.clock(), frames
+        frames = 0
+        local ok, err = pcall(function()
+            Perf.add(Perf.read(count, now - last), os.time())
+        end)
+        if not ok then
+            App.log(1, "ERROR", "performance: " .. tostring(err))
+        end
+        last = now
+    end
+end
+
+-- Team changes: every team swap the farm makes goes to team-changes.log (who went out, who came in, why).
+function TeamLog.file()
+    return Core.FOLDER .. "/team-changes.log"
+end
+
+function TeamLog.names(list)
+    local names = {
+    }
+    for _, item in ipairs(type(list) == "table" and list or {
+    }) do
+        local ok, name = pcall(Units.name, item.id)
+        table.insert(names, ok and name or tostring(item.id))
+    end
+    return names
+end
+
+-- out, in: names that left and came in (copies counted)
+function TeamLog.diff(before, after)
+    local left = {
+    }
+    for _, name in ipairs(before) do
+        left [name] = (left [name] or 0) + 1
+    end
+    local came = {
+    }
+    for _, name in ipairs(after) do
+        if (left [name] or 0) > 0 then
+            left [name] -= 1
+        else
+            table.insert(came, name)
+        end
+    end
+    local went = {
+    }
+    for _, name in ipairs(before) do
+        if (left [name] or 0) > 0 then
+            left [name] -= 1
+            table.insert(went, name)
+        end
+    end
+    return went, came
+end
+
+function TeamLog.line(before, after, label, ok, now)
+    local went, came = TeamLog.diff(before, after)
+    if # went == 0 and # came == 0 and ok then
+        return nil
+    end
+    return string.format("%s  %s  %s · out: %s · in: %s · team now: %s",
+        os.date("%Y-%m-%d %H:%M:%S", now or os.time()), ok and "done  " or "FAILED", tostring(label),
+        # went > 0 and table.concat(went, ", ") or "—", # came > 0 and table.concat(came, ", ") or "—",
+        # after > 0 and table.concat(after, ", ") or "empty")
+end
+
+function TeamLog.write(before, after, label, ok)
+    local line = TeamLog.line(before, after, label, ok)
+    if line then
+        App.appendLog(TeamLog.file(), line .. "\n")
+    end
+    return line
+end
+-- ===== end Discord
 
 function Reports.postEmbed(arg1, arg2)
     local httpRequest = (syn and syn.request) or (http and http.request) or http_request or request
@@ -47125,6 +50402,7 @@ GUI.LAYOUT = {
         General = { "Settings", "General", "General", "Left" },
         ["Gold shop"] = { "Settings", "General", "Gold shop", "Right" },
         ["Study A Unit"] = { "Units", "Study", "Study a unit", "Left" },
+        ["Discord and reconnect"] = { "Settings", "General", "Discord & reconnect", "Left" },
         Controls = { "Settings", "General", "Script", "Right" },
     },
 }
@@ -47424,7 +50702,7 @@ end
 function GUI.planCard(group)
     local heading = group:CreateLabel({ Text = "<b>Plan</b>" })
     local cells = {}
-    for _, key in ipairs({ "Next step", "Map & mode", "Current team", "Planned team", "Expected", "Why" }) do
+    for _, key in ipairs({ "Next step", "Map & mode", "Current team", "Planned team", "Expected", "Why", "Tier list" }) do
         cells[key] = group:CreateStatus({ Name = key, Value = "", Style = "Plain", Wrap = true, Visible = false })
     end
     local state = group:CreateStatus({ Name = "Calculation", Value = "", Style = "Plain", Wrap = true, Visible = false })
@@ -47544,6 +50822,7 @@ function GUI.planView(col)
         why = why .. "\nFusion: " .. tostring(view.fusion.note)
     end
     data["Why"] = why
+    data["Tier list"] = view and view.tiers or nil
     data.plannedColor = col and (plan.better and col.green or col.text) or nil
     return data
 end
@@ -50261,6 +53540,45 @@ function GUI.build()
     tab:Button("⏹️", "Stop Study", "No more study runs after the one going now. Your own team goes back in", function()
         helper6("Study", FarmHub.studyStop() and "stopped: your own team goes back in" or "no study going", "default")
     end)
+    tab:Section("Discord and reconnect")
+    ui.discordUrl = tab:Input("Discord Webhook", "Paste your channel's webhook link. In Discord: channel settings → Integrations → Webhooks → New Webhook → Copy Webhook URL. It is kept only in settings.json on this PC", Discord.validUrl(Config.discordUrl) and "saved · paste a new link to change it" or "https://discord.com/api/webhooks/…", "", function(text)
+        local ok, msg = Discord.check(text)
+        if ok == nil then
+            return
+        end
+        if ok then
+            helper("discordUrl", Discord.clean(text))
+            Discord.broken = nil
+        end
+        helper6("Discord", msg, ok and "success" or "warning")
+        pcall(function()
+            ui.discordUrl.Set("")
+        end)
+    end)
+    helper2(tab, "Match Results", "A message after every match: result, wave, time, gems, coins, items and the session so far", "discordMatches")
+    helper2(tab, "Compact Results", "One line per match; several matches come as one short list", "discordCompact")
+    helper2(tab, "Alerts", "Farming finished or paused, no progress, disconnects and rejoins", "discordAlerts")
+    helper3(tab, "Summary Every", "A session summary every this many hours (0 = off)", "discordSummaryHours", {
+        min = 0,
+        max = 12,
+        step = 1,
+        format = function(arg1)
+            arg1 = math.floor(arg1 + 0.5)
+            return arg1 == 0 and "off" or (arg1 .. " h")
+        end
+    })
+    tab:Button("📨", "Send Test", "Posts a test message to your webhook", function()
+        local ok, msg = Discord.test()
+        helper6("Discord", msg, ok and "success" or "warning")
+    end)
+    tab:Button("🧹", "Forget Webhook", "No more Discord messages; the link is cleared from settings.json", function()
+        helper("discordUrl", "")
+        table.clear(Discord.queue)
+        Discord.broken = nil
+        helper6("Discord", "webhook forgotten", "default")
+    end)
+    helper2(tab, "Auto Rejoin", "After a lost connection, a timeout or a server shutdown: joins the lobby again and the farm goes on. Never after a kick, a ban or a login from another device; at most 3 tries in 15 minutes", "autoRejoin")
+    live.discord = tab:Paragraph("…")
     tab:Section("Controls")
     tab:Button("🏠", "Go To Lobby", "Leaves the match now and starts no other until Start Farming Again. Summons and fuses you switched on still run", function()
         Brain.holdLobby = {
@@ -50301,6 +53619,7 @@ function GUI.build()
         local tab = window:Tab("⚡", "Performance")
         helper7(tab, "Only this device. Hide can be undone at any time; Delete lasts for this map. Start with Hide.")
         live.gfx = tab:Label(GUI.gfxText())
+        live.perf = tab:Label(Perf.text())
         tab:Section("Textures and effects")
         ui.gfxTextures = tab:Dropdown("Textures", "Decals, surface textures and mesh skins on the map. Hide: undo any time. Delete: frees memory, back on the next map or after a rejoin. Units keep their look", {
             "Keep",
@@ -50853,6 +54172,11 @@ function GUI.update()
             live.snipe.Set(FarmHub.snipeText())
         end)
     end
+    if live.discord and FarmHub.every("discordText", 3) then
+        pcall(function()
+            live.discord.Set(Discord.statusText())
+        end)
+    end
     if live.study and FarmHub.every("studyText", 5) then
         pcall(function()
             live.study.Set(FarmHub.studyText())
@@ -51002,6 +54326,9 @@ function GUI.update()
         local lastMatch = Brain.lastMatch
         pcall(live.lastMatch.Set, lastMatch and string.format("Last match (%s): ¥%s spent on %d buys · %d refused spots", lastMatch.label, Utils.fmt(lastMatch.spent), lastMatch.actions or 0, lastMatch.refusals or 0) or "no match yet")
     end
+    if live.perf and FarmHub.every("perfText", 5) then
+        pcall(live.perf.Set, Perf.text())
+    end
     if live.gfx then
         pcall(live.gfx.Set, GUI.gfxText())
     end
@@ -51112,6 +54439,13 @@ App.REPORT = Reports
 App.version = VERSION
 pcall(Farming.resume)
 pcall(GUI.gfxApply)
+if App.where == "lobby" then
+    Brain.lobbyPlace = game.PlaceId
+end
+pcall(Rejoin.watch)
+pcall(Rejoin.afterLoad)
+task.spawn(Discord.loop)
+task.spawn(Perf.loop)
 task.spawn(GUI.build)
 task.spawn(function()
     task.wait(2)
