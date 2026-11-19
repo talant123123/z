@@ -10,7 +10,7 @@ local AIRFLOW_SOURCE = [====[
 -- Teleports use this edition's local cache instead of fetching the old UI script.
 -- Statically checked; not run inside Roblox.
 
-local VERSION = "2.25"
+local VERSION = "2.26"
 if _G.AA_SF and _G.AA_SF.alive then
     if _G.AA_SF.version == VERSION then
         warn("[awaqwaa] v" .. VERSION .. " is already running")
@@ -1691,6 +1691,37 @@ table.insert(CHANGELOG, 1, {
         }
     }
 })
+table.insert(CHANGELOG, 1, {
+    v = "2.26",
+    date = "Nov 19, 2026",
+    title = "Your own team, and Fused Hero levels up",
+    items = {
+        {
+            "👥",
+            "Your own team for a mode",
+            "Home: equip the six you want, then Save Equipped Team For This Mode. Before a run of that mode the farm puts that team on (even with Auto-Equip Best Team off), never swaps a unit out, and the simulator plans farms, buffs, Fusion and spots for it. Clear Team For This Mode gives the choice back to the farm.",
+            "NEW"
+        },
+        {
+            "🧬",
+            "Fused Hero levels up",
+            "Fused Hero's levels 2 and 3 hit slower than level 1, and the farm only looked two levels ahead, so it saw no gain and left the hero, often most of your damage, at level 1. It now weighs the whole road to level 6 (about +40% for the hero), as long as the yen still to come in the match pays for it.",
+            "FIX"
+        },
+        {
+            "📊",
+            "Levels at the end of a match",
+            "A LEVELS line after the damage line: the highest level each unit reached on the field, Fused Hero first.",
+            "NEW"
+        },
+        {
+            "🃏",
+            "Clearer card message",
+            "When every offered card would take the team under its floor and nothing is on Never Take, the log says so instead of mentioning Never Take.",
+            "IMPROVED"
+        }
+    }
+})
 local App = {
     alive = true,
     conns = {
@@ -1805,6 +1836,8 @@ Core.DEFAULTS = {
     farm = true,
     dailyLoop = false,
     dailyTeam = {
+    },
+    modeTeams = {
     },
     dailyBox = false,
     dailyMatch = true,
@@ -19737,7 +19770,7 @@ function Modes.chOk(mode, equippedOnly)
     if Config.chSmart then
         local sim = Modes.sim(mode, equippedOnly)
         local chMinP = tonumber(Config.chMinP) or 0.5
-        local canSearch = not equippedOnly and Config.sim and Config.simTeams and Config.autoTeam and not Modes.teamPlan(mode)
+        local canSearch = not equippedOnly and Config.sim and Modes.canSearch(mode) and not Modes.teamPlan(mode)
         local probability = sim and sim.p
         if probability and mode.kind == "daily" and FarmHub.matchOn(mode) then
             probability = math.max(probability, Modes.MATCHED_DAILY_P)
@@ -20706,6 +20739,13 @@ function Modes.list()
     }
     local now = os.time()
     local function helper(mode)
+        if Modes.hasOwnTeam(mode) then
+            local team, why = Modes.ownTeam(mode)
+            if not team then
+                Modes.skipped[mode.key] = mode.label .. ": " .. tostring(why)
+                return
+            end
+        end
         mode.rec = Modes.rec(mode.key)
         local rotation = Modes.rotation(mode)
         local flag = (mode.rec.restUntil or 0) > now and mode.kind ~= "portal"
@@ -20718,7 +20758,7 @@ function Modes.list()
         end
         if mode.kind == "daily" and not FarmHub.matchOn(mode) and not Config.dailyLoop then
             local ok, res = pcall(Modes.needsHelp, mode)
-            if ok and res and not (Config.sim and Config.simTeams and Config.autoTeam and not Modes.teamPlan(mode)) then
+            if ok and res and not (Config.sim and Modes.canSearch(mode) and not Modes.teamPlan(mode)) then
                 Modes.skipped [mode.key] = mode.label .. ": the simulator says your team can't win it alone, and Matchmake The Daily is off"
                 return
             end
@@ -21060,6 +21100,139 @@ function Modes.list()
     return list
 end
 
+-- 2.26: a fixed lineup is shared by maps of the same mode kind.
+function Modes.teamKey(train)
+    if type(train) == "string" then return train end
+    if type(train) ~= "table" then return nil end
+    return train.legend and "legend" or train.kind
+end
+
+function Modes.hasOwnTeam(train)
+    local key = Modes.teamKey(train)
+    return key ~= nil and key ~= "dungeon" and type(Config.modeTeams) == "table" and Config.modeTeams[key] ~= nil
+end
+
+function Modes.ownTeam(train)
+    local key = Modes.teamKey(train)
+    if key == "dungeon" then return nil, "dungeon: own team not supported yet" end
+    if not Modes.hasOwnTeam(train) then return nil end
+    local function fail(why)
+        local message = tostring(key) .. ": " .. why .. "; run held"
+        Modes._ownErrors = Modes._ownErrors or {}
+        if Modes._ownErrors[key] ~= message then
+            App.log(1, "TEAM", message)
+            Modes._ownErrors[key] = message
+        end
+        return nil, message
+    end
+    local saved = Config.modeTeams[key]
+    if type(saved) ~= "table" or #saved < 1 or #saved > 6 then return fail("save 1 to 6 units again") end
+    local session = Core.session()
+    if not (session and session.collection and session.profile_data and session.profile_data.collection) then
+        return fail("unit collection unavailable")
+    end
+    local result, used, reserved = {}, {}, {}
+    -- Reserve exact UUIDs first: a missing slot must not steal a later slot's copy.
+    for _, slot in ipairs(saved) do
+        if type(slot) ~= "table" or type(slot.id) ~= "string" or slot.id == "" or type(slot.uuid) ~= "string" then
+            return fail("invalid saved slot")
+        end
+        local unit = session.collection:get_unit_by_uuid(slot.uuid)
+        if unit and unit.unit_id == slot.id then reserved[slot.uuid] = true end
+    end
+    for _, slot in ipairs(saved) do
+        local uuid, unit = slot.uuid, session.collection:get_unit_by_uuid(slot.uuid)
+        if not unit or unit.unit_id ~= slot.id then
+            uuid = nil
+            local best
+            local rows = Units.isFarm(slot.id) and Units.rows(slot.id)
+            for _, owned in pairs(session.profile_data.collection.owned_units or {}) do
+                local candidate = owned.uuid and session.collection:get_unit_by_uuid(owned.uuid)
+                if candidate and candidate.unit_id == slot.id and not used[owned.uuid] and not reserved[owned.uuid] then
+                    local ok, score
+                    if Units.isFarm(slot.id) then
+                        ok, score = pcall(Units.farm, candidate, rows and rows.max or 0)
+                    else
+                        ok, score = pcall(Units.score, candidate)
+                    end
+                    score = ok and tonumber(score) or 0
+                    score = score or 0
+                    if not uuid or score > best or (score == best and owned.uuid < uuid) then uuid, best = owned.uuid, score end
+                end
+            end
+        end
+        if not uuid or used[uuid] then return fail("missing or duplicate unit " .. slot.id) end
+        if uuid ~= slot.uuid then
+            Modes._ownSubs = Modes._ownSubs or {}
+            local note = tostring(key) .. ":" .. tostring(slot.uuid)
+            if not Modes._ownSubs[note] then
+                Modes._ownSubs[note] = true
+                App.log(1, "TEAM", string.format("%s: the saved %s is gone, your best other copy goes in", tostring(key), Units.name(slot.id)))
+            end
+        end
+        used[uuid] = true
+        table.insert(result, uuid)
+    end
+    if Modes._ownErrors then Modes._ownErrors[key] = nil end
+    return result
+end
+
+function Modes.ownUnits(train)
+    local uuids, why = Modes.ownTeam(train)
+    if not uuids then return nil, why end
+    local session, units = Core.session(), {}
+    for _, uuid in ipairs(uuids) do table.insert(units, session.collection:get_unit_by_uuid(uuid)) end
+    return units
+end
+
+function Modes.ownProfile(train)
+    local uuids = Modes.ownTeam(train)
+    return uuids and Modes.ownedProfile(uuids) or nil
+end
+
+function Modes.canSearch(train)
+    return not Modes.hasOwnTeam(train) and Config.autoTeam and Config.simTeams
+end
+
+function Modes.setOwnTeam(key, slots)
+    if key == "dungeon" and slots ~= nil then return false, "dungeon: own team not supported yet" end
+    local teams = table.clone(type(Config.modeTeams) == "table" and Config.modeTeams or {})
+    teams[key] = slots
+    Farming.setBase("modeTeams", teams)
+    Modes._teamRevision = (Modes._teamRevision or 0) + 1
+    Modes._ownErrors, Modes._sigAt, Modes.lastScored = nil, nil, nil
+    Brain.simRes, Brain.simTeam = {}, {}
+    FarmHub.manualPlan = nil
+    if FarmHub.last then FarmHub.last.pick, FarmHub.last.simTeam = nil, nil end
+    App.saveSoon()
+    return true, slots and (key .. ": equipped team saved") or (key .. ": auto: the farm picks")
+end
+
+function Modes.saveOwnTeam(key)
+    if Brain.trial or (Brain.train and Brain.train.on) then
+        return false, "A trial or training team is on: save once your own team is back"
+    end
+    local slots = {}
+    for _, entry in ipairs(Units.equipped()) do
+        if #slots >= 6 then return false, "Equip no more than 6 units" end
+        table.insert(slots, { uuid = entry.uuid, id = entry.u.unit_id })
+    end
+    if #slots == 0 then return false, "Equip at least one unit first" end
+    return Modes.setOwnTeam(key, slots)
+end
+
+function Modes.ownTeamText(key)
+    if key == "dungeon" then return "dungeon: own team not supported yet" end
+    if not Modes.hasOwnTeam(key) then return tostring(key) .. ": auto: the farm picks" end
+    local names = {}
+    for _, slot in ipairs(type(Config.modeTeams[key]) == "table" and Config.modeTeams[key] or {}) do
+        table.insert(names, type(slot) == "table" and Units.name(slot.id or "?") or "?")
+    end
+    local _, why = Modes.ownTeam(key)
+    return tostring(key) .. ": " .. table.concat(names, ", ") .. (why and (" · " .. why) or "")
+end
+
+
 function Modes.teamSig()
     if Modes._sigAt and Utils.now() - Modes._sigAt < 20 then
         return Modes._sig
@@ -21128,6 +21301,7 @@ function Modes.ownedProfile(uuids)
 end
 
 function Modes.teamPlan(mode, base)
+    if Modes.hasOwnTeam(mode) then return nil end
     local plan = Brain.simTeam[mode.key]
     if not Config.sim or not Config.simTeams or not plan or not plan.profile or plan.rotation ~= Modes.rotation(mode) or os.time() - (tonumber(plan.at) or 0) >= 600 then
         return nil
@@ -21155,15 +21329,18 @@ function Modes.sim(mode, equippedOnly)
     if not Config.sim then
         return nil
     end
-    if not equippedOnly and Config.autoTeam and Config.simTeams then
+    local fixed = Modes.hasOwnTeam(mode)
+    local ownProfile = fixed and Modes.ownProfile(mode)
+    if fixed and not ownProfile then return nil end
+    if not equippedOnly and Modes.canSearch(mode) then
         local plan = Modes.teamPlan(mode)
         if plan and plan.better and plan.prediction then
             return plan.prediction
         end
     end
     local prediction = Brain.simRes[mode.key]
-    local profile = Modes.equippedProfile()
-    if not equippedOnly and Config.autoTeam and Config.simTeams then
+    local profile = ownProfile or Modes.equippedProfile()
+    if not equippedOnly and Modes.canSearch(mode) then
         profile = Modes.ownedProfile(Brain.savedTeam or (Brain.train.on and Brain.train.on.base)) or profile
     end
     local proven = Modes.provenWinner(mode, profile)
@@ -26983,6 +27160,14 @@ function Training.home()
 end
 
 function Training.apply(train)
+    if Modes.hasOwnTeam(train) then
+        -- teamFor has already restored training, then equipped the requested lineup.
+        if Brain.train.on then
+            pcall(Training.home)
+        end
+        Brain.train.on = nil
+        return App.status("Training", "paused for this mode team")
+    end
     local testTeam = Brain.testTeam
     if testTeam and (testTeam.left or 0) > 0 and train and testTeam.key == train.key then
         Training.home()
@@ -28157,6 +28342,7 @@ function FarmHub.pad(kind, mode)
 end
 
 function FarmHub.launch(mode)
+    if Modes.hasOwnTeam(mode) and not FarmHub.teamFor(mode) then return false end
     if mode.kind == "dungeon" then
         return Dungeon.launch(mode)
     end
@@ -28359,6 +28545,7 @@ function FarmHub.matchmake(mode)
 end
 
 function FarmHub.launchPortal(mode)
+    if Modes.hasOwnTeam(mode) and not FarmHub.teamFor(mode) then return false end
     Brain.pending = {
         key = mode.key,
         kind = mode.kind,
@@ -28459,7 +28646,7 @@ function FarmHub.launchPortal(mode)
         App.saveNow()
         App.log(1, "PORTAL", string.format("%s opened: %s", mode.label, joined:sub(1, 400)))
         local value = joined:find("weak") or joined:find("challenge") or joined:find("difficulty") or joined:find("resist") or joined:find("health")
-        if value and Config.autoTeam then
+        if value and Config.autoTeam and not Modes.hasOwnTeam(mode) then
             mode.ldOverride = levelData
             local ok, res = pcall(FarmHub.teamFor, mode, FarmHub.QUICK_SEARCH)
             if not ok then
@@ -28548,12 +28735,16 @@ function FarmHub.watchDone()
 end
 
 function FarmHub.simFresh(mode)
+    local fixed = Modes.hasOwnTeam(mode)
+    local ownProfile = fixed and Modes.ownProfile(mode)
+    if fixed and not ownProfile then return false end
+    local profile = ownProfile or Modes.equippedProfile()
     local simRe = Brain.simRes [mode.key]
     if not simRe or simRe.rotation ~= Modes.rotation(mode) then
         return false
     end
     local num = simRe.none and 120 or 6 * 3600
-    return os.time() - (tonumber(simRe.at) or 0) < num and simRe.profile == Modes.equippedProfile()
+    return os.time() - (tonumber(simRe.at) or 0) < num and simRe.profile == profile
 end
 
 function FarmHub.relicClash(arg1)
@@ -28878,6 +29069,15 @@ end
 FarmHub.QUICK_SEARCH = 7
 
 function FarmHub.teamFor(train, quickSearch)
+    if Modes.hasOwnTeam(train) then
+        local uuids, why = Modes.ownTeam(train)
+        if not uuids then return false, why end
+        if Brain.train.on then Training.home() end
+        if not Training.same(Training.team(), uuids) then
+            return FarmHub.equipTeam(uuids, "your " .. tostring(Modes.teamKey(train)) .. " team")
+        end
+        return true
+    end
     if train.key == "dg" then
         return not Brain.savedTeam or FarmHub.restoreTeam()
     end
@@ -28996,8 +29196,8 @@ function FarmHub.recalculatePlan(notify)
     if App.where ~= "lobby" then
         return report("Team planning is available in the lobby.", "warning")
     end
-    if not (Config.sim and Config.simTeams) then
-        return report("Enable Use The Simulator and Plan Best Teams.", "warning")
+    if not Config.sim then
+        return report("Enable Use The Simulator.", "warning")
     end
     if FarmHub.manualPlanning then
         return report("Team planning is already running.", "warning")
@@ -29014,8 +29214,17 @@ function FarmHub.recalculatePlan(notify)
             return "No available mode to plan. Check Farm mode settings.", "warning"
         end
         if mode.kind == "dungeon" then
-            return "Dungeon teams are planned separately for each room.", "warning"
+            return "dungeon: own team not supported yet; room planner is separate", "warning"
         end
+        if Modes.hasOwnTeam(mode) then
+            local team, why = Modes.ownTeam(mode)
+            if not team then return why, "warning" end
+            if not FarmHub.teamFor(mode) then return "Saved team could not be equipped; run held.", "warning" end
+            local result = Simulator.plan(mode, false)
+            if not result then return "No forecast for the saved team.", "warning" end
+            return mode.label .. ": saved team · " .. result.margin, "success"
+        end
+        if not Config.simTeams then return "Enable Plan Best Teams.", "warning" end
         if #Units.equipped() == 0 then
             return "Equip at least one unit and recalculate.", "warning"
         end
@@ -30004,8 +30213,8 @@ function FarmHub.run()
             if FarmHub.scanning and Utils.now() - FarmHub.scanning < 30 then
                 value = nil
             end
-            if not FarmHub.manualPlanning and Config.play and Config.sim and value and not FarmHub.simFresh(value) and value.kind ~= "event" and value.kind ~= "dungeon" then
-                local doTeamSearch = Config.autoTeam and Config.simTeams and not Modes.teamPlan(value)
+            if not FarmHub.manualPlanning and Config.play and Config.sim and value and not FarmHub.simFresh(value) and (value.kind ~= "event" or Modes.hasOwnTeam(value)) and value.kind ~= "dungeon" and not (Modes.hasOwnTeam(value) and not Modes.ownProfile(value)) then
+                local doTeamSearch = Modes.canSearch(value) and not Modes.teamPlan(value)
                 App.status("Mode", (doTeamSearch and "planning best team for " or "simulating ") .. value.label .. "…")
                 if doTeamSearch then Simulator.memoOn() end
                 local ok, res = pcall(Simulator.plan, value, doTeamSearch, doTeamSearch and 20 or nil)
@@ -30017,7 +30226,7 @@ function FarmHub.run()
                     Brain.simRes [value.key] = {
                         none = true,
                         sig = Modes.teamSig(),
-                        profile = Modes.equippedProfile(),
+                        profile = Modes.hasOwnTeam(value) and Modes.ownProfile(value) or Modes.equippedProfile(),
                         rotation = Modes.rotation(value),
                         at = os.time()
                     }
@@ -30027,7 +30236,7 @@ function FarmHub.run()
             end
             if not FarmHub.manualPlanning and Config.play and value and Utils.now() - now > 8 and not (App.req.back.launch and Utils.now() < App.req.back.launch) then
                 local alreadyInLobby = LocalPlayer:FindFirstChild("AlreadyInLobby")
-                if Brain.trial then
+                if Brain.trial and not Modes.hasOwnTeam(value) then
                     local ok, res = pcall(Modes.trialTeam)
                     if not ok then
                         App.log(1, "ERROR", "trial team: " .. tostring(res))
@@ -30038,7 +30247,7 @@ function FarmHub.run()
                     end
                 else
                     local teamReady = true
-                    if Config.autoTeam or (Brain.testTeam and (Brain.testTeam.left or 0) > 0 and Brain.testTeam.key == value.key) then
+                    if Modes.hasOwnTeam(value) or Config.autoTeam or (Brain.testTeam and (Brain.testTeam.left or 0) > 0 and Brain.testTeam.key == value.key) then
                         local ok, equipped = pcall(FarmHub.teamFor, value)
                         teamReady = ok and equipped
                         if not teamReady then
@@ -30155,7 +30364,7 @@ end
 -- road it reaches, so a wider circle multiplies the whole unit, not only the added damage: an
 -- upgrade that only widens the circle is worth something too. One and two steps ahead use the same
 -- rate (area of effect included), so a weak step before a strong one is judged on equal terms.
-function Economy.upgradeGain(liveDps, rows, level, cost, costMul, nextDps, reachOf)
+function Economy.upgradeGain(liveDps, rows, level, cost, costMul, nextDps, reachOf, budget)
     local cur, nxt = rows [level], rows [level + 1]
     local curRate = Economy.rowRate(cur)
     local curRange = cur and cur.range or 1
@@ -30163,12 +30372,33 @@ function Economy.upgradeGain(liveDps, rows, level, cost, costMul, nextDps, reach
         return Economy.rowRate(row) / curRate * Economy.reachRatio(curRange, row and row.range or curRange, reachOf)
     end
     local gain = curRate > 0 and liveDps * (powerAt(nxt) - 1) or (nextDps or 0)
-    local after = rows [level + 2]
-    if after and level + 1 < rows.max and curRate > 0 and Economy.rowRate(nxt) > 0 and Economy.rowRate(after) > 0 then
-        local twoStepGain = liveDps * (powerAt(after) - 1)
-        local twoStepCost = (cost or 0) + (after.cost or 0) * (costMul or 1)
-        if cost and cost > 0 and twoStepCost > 0 and (twoStepGain / twoStepCost) > (gain / cost) then
-            gain = gain + (twoStepGain / twoStepCost * cost - gain) * 0.5
+    -- 2.26: the best yen-for-damage over the whole road to any later level, not only the next two. A weak
+    -- step before strong ones (Fused Hero: levels 2 and 3 hit slower than level 1, 4 to 6 recover) is
+    -- then worth the part of that road it buys; for an ordinary table the first step stays the best and
+    -- nothing changes as long as no later level is a better buy per yen than the next one. A road the
+    -- yen still to come can't pay for (budget) doesn't count.
+    if curRate > 0 and cost and cost > 0 and (rows.max or 0) >= level + 2 then
+        local base = math.max(0, gain)
+        local baseEff = base / cost
+        local bestEff, total = baseEff, cost
+        for k = level + 2, rows.max do
+            local row = rows [k]
+            if not row then
+                break
+            end
+            total = total + (row.cost or 0) * (costMul or 1)
+            if budget and total > budget then
+                break
+            end
+            if Economy.rowRate(row) > 0 then
+                local eff = liveDps * (powerAt(row) - 1) / total
+                if eff > bestEff then
+                    bestEff = eff
+                end
+            end
+        end
+        if bestEff > baseEff then
+            gain = base + (bestEff * cost - base) * 0.5
         end
     end
     return math.max(0, gain)
@@ -35667,6 +35897,16 @@ function Simulator.compareTeams(level, current, proposed, currentRun, proposedRu
 end
 
 function Simulator.plan(mode, arg2, arg3, arg4, freshSearch)
+    local revision = Modes._teamRevision
+    local fixed = Modes.hasOwnTeam(mode)
+    if fixed then
+        local units, why = Modes.ownUnits(mode)
+        if not units then return nil, why end
+        arg4, arg2 = units, false
+    end
+    local function stale()
+        return revision ~= Modes._teamRevision or fixed ~= Modes.hasOwnTeam(mode)
+    end
     local trace = arg2 and Simulator.planTrace(tostring(mode.label or mode.key))
     if trace then trace(freshSearch and "Started manual search" or "Started automatic search") end
     local levelFor, levelFor2 = Simulator.levelFor(mode)
@@ -35713,7 +35953,12 @@ function Simulator.plan(mode, arg2, arg3, arg4, freshSearch)
     evaluate.trust = Simulator.trust(info, teamFrom)
     evaluate.label = mode.label
     evaluate.calibrated = (tonumber(info.cal.n) or 0) > 0
+    if stale() or (fixed and Modes.ownProfile(mode) ~= profile) then return nil, "mode team changed; recalculate" end
     Brain.simRes [mode.key] = evaluate
+    if fixed then
+        Brain.simTeam[mode.key] = nil
+        evaluate.teamReason = "saved mode team; no replacements"
+    end
     evaluate.aliveAt = nil
     App.log(1, "SIM", string.format("%s: your team %s (%s, %s)", mode.label, evaluate.margin, evaluate.calibrated and "calibrated on real runs" or "not calibrated yet", evaluate.trust and string.format("real/sim HP %.2f", evaluate.trust.ratio) or "no same-team run to compare"))
     local rec = Modes.rec(mode.key)
@@ -35745,6 +35990,7 @@ function Simulator.plan(mode, arg2, arg3, arg4, freshSearch)
                     table.insert(list2, Units.name(item.unit_id))
                     table.insert(list3, item.unit_id)
                 end
+                if stale() then return nil, "mode team changed; recalculate" end
                 Brain.simTeam [mode.key] = {
                     uuids = rec.winTeam,
                     names = list2,
@@ -35939,6 +36185,7 @@ function Simulator.plan(mode, arg2, arg3, arg4, freshSearch)
             for _, unitData in ipairs(res) do
                 table.insert(list3, unitData.unit_id)
             end
+            if stale() then return nil, "mode team changed; recalculate" end
             Brain.simTeam [mode.key] = {
                 uuids = list,
                 names = list2,
@@ -37737,6 +37984,10 @@ function Dungeon.startTeam(uuids, arg2, label, arg4)
 end
 
 function Dungeon.planTeam(arg1, arg2, arg3)
+    if type(Config.modeTeams) == "table" and Config.modeTeams.dungeon ~= nil and not Dungeon.ownTeamNoted then
+        Dungeon.ownTeamNoted = true
+        App.log(1, "TEAM", "dungeon: own team not supported yet")
+    end
     if not (Config.sim and Config.simTeams) or type(arg1.r._l) ~= "table" then
         return
     end
@@ -42697,6 +42948,54 @@ function Match.summonSplit()
     return list3
 end
 
+-- 2.26: the highest level each unit reached on the field this match (and how many copies stood at once).
+Match.levelSeen = {}
+
+function Match.noteLevels()
+    local count, low = {}, {}
+    for _, unit in ipairs(Match.mine or {}) do
+        local stats = unit:FindFirstChild("_stats")
+        local idValue = stats and stats:FindFirstChild("id")
+        local id = idValue and idValue.Value
+        if id then
+            local upgrade = stats:FindFirstChild("upgrade")
+            local level = upgrade and tonumber(upgrade.Value) or 0
+            local seen = Match.levelSeen [id] or { top = 0, low = level, n = 0 }
+            seen.top = math.max(seen.top, level)
+            Match.levelSeen [id] = seen
+            count [id] = (count [id] or 0) + 1
+            low [id] = math.min(low [id] or level, level)
+        end
+    end
+    for id, n in pairs(count) do
+        local seen = Match.levelSeen [id]
+        if n >= seen.n then
+            seen.n, seen.low = n, low [id]
+        end
+    end
+end
+
+function Match.levelsLine()
+    local list = {}
+    for id, seen in pairs(Match.levelSeen) do
+        local rows = Units.rows(id)
+        local text = string.format("%s %d/%s", tostring(Units.name(id) or id), seen.top, rows and tostring(rows.max) or "?")
+        if seen.n > 1 then
+            text = text .. string.format(" (%d copies, lowest %d)", seen.n, seen.low)
+        end
+        table.insert(list, { text = text, top = id == Units.FUSION.hero and 1e9 or seen.top })
+    end
+    if # list == 0 then
+        return nil
+    end
+    table.sort(list, function(a, b) return a.top > b.top end)
+    local out = {}
+    for _, item in ipairs(list) do
+        table.insert(out, item.text)
+    end
+    return "highest levels on the field: " .. table.concat(out, " · ")
+end
+
 function Match.damageLine()
     local damageShares, damageShares2, damageShares3 = Match.damageShares()
     if not damageShares then
@@ -43475,6 +43774,15 @@ function Match.econ()
     local money = Match.money()
     local wave = Match.wave()
     local wavesLeft = math.max(0, Match.total - wave)
+    local pathBudget
+    do
+        local waveSec = Match.info and tonumber(Match.info.waveSec) or 0
+        if waveSec <= 0 then
+            waveSec = 20
+        end
+        local rate = Match.incomeRate or (((Match.coming and Match.coming [1] and Match.coming [1].reward) or 500) / waveSec)
+        pathBudget = money + rate * waveSec * wavesLeft
+    end
     local team = Match.team
     local upCostMul = 1
     local spawnCostMul = 1
@@ -43485,6 +43793,7 @@ function Match.econ()
     }
     local attackers, farmIncome, wantLeft = 0, 0, 0
     local attackersPlaced = 0
+    pcall(Match.noteLevels)
     for _, unit in ipairs(Match.mine) do
         if not Units.isFarm(unit._stats.id.Value) then
             attackersPlaced = attackersPlaced + 1
@@ -43648,7 +43957,7 @@ function Match.econ()
                     elseif Match.mergeHold(copy) then
                     else
                         local shieldHp, shieldCount = Match.shieldNow()
-                        local gain = (shieldHp > 0 and Economy.shieldGain(Match.liveDps(copy, member.id), rows [level], Units.dps(member.u, level + 1, Match.mod), nextRow, shieldHp, shieldCount, 1, Match.info and Match.info.eff) or Economy.upgradeGain(Match.liveDps(copy, member.id), rows, level, cost, upCostMul, Units.dps(member.u, level + 1, Match.mod), Match.reachOf(copy))) * trainBonus * Match.mergeBoost(copy) * Match.airBoost(copy) * Match.reach(copy) * Match.focusGain(copy) * (realFactor [copy] or 1)
+                        local gain = (shieldHp > 0 and Economy.shieldGain(Match.liveDps(copy, member.id), rows [level], Units.dps(member.u, level + 1, Match.mod), nextRow, shieldHp, shieldCount, 1, Match.info and Match.info.eff) or Economy.upgradeGain(Match.liveDps(copy, member.id), rows, level, cost, upCostMul, Units.dps(member.u, level + 1, Match.mod), Match.reachOf(copy), pathBudget)) * trainBonus * Match.mergeBoost(copy) * Match.airBoost(copy) * Match.reach(copy) * Match.focusGain(copy) * (realFactor [copy] or 1)
                         local bleedGain = Match.bleedGain(member.id, level, false)
                         gain = gain + bleedGain
                         gain = gain + Match.buffWider(member, copy, rows [level], nextRow)
@@ -43760,7 +44069,7 @@ function Match.econ()
                 local estimate = liveDps * (nextLevel.damage / math.max(1, current.damage)) * (current.cd / math.max(0.1, nextLevel.cd))
                 table.insert(options, {
                     cost = cost,
-                    gain = Economy.upgradeGain(liveDps, fusionRows, level, cost, cost / math.max(1, nextLevel.cost), estimate) * Match.reach(tower) * (realFactor [tower] or 1),
+                    gain = Economy.upgradeGain(liveDps, fusionRows, level, cost, cost / math.max(1, nextLevel.cost), estimate, Match.reachOf(tower), pathBudget) * Match.reach(tower) * (realFactor [tower] or 1),
                     m = tower,
                     fusedUp = true,
                     what = string.format("upgrade Fused Hero to level %d", level + 1),
@@ -46088,7 +46397,11 @@ function Match.huntChoose(arg1, wave)
         if allowedRank then huntCards = "priority " .. allowedRank .. " / " .. huntCards end
     elseif notBanned ~= nil then
         value, value3, value4 = notBanned, notBannedStrength, notBannedGems
-        App.log(1, "ROGUE", string.format("No safe card outside Never Take (%d banned, %d unsafe): the best card you didn't ban", bannedCount, unsafeCount))
+        if bannedCount > 0 then
+            App.log(1, "ROGUE", string.format("No safe card outside Never Take (%d banned, %d unsafe): the best card you didn't ban", bannedCount, unsafeCount))
+        else
+            App.log(1, "ROGUE", string.format("All %d offered cards would take the team under its floor: the least harmful one", unsafeCount))
+        end
         huntCards = huntCards .. " fallback"
     elseif value ~= nil then
         App.log(1, "ROGUE", string.format("Every offered card is on Never Take (%d): using %s to keep the run moving", bannedCount, huntCards))
@@ -48591,6 +48904,11 @@ function Match.finish()
     if ok and res then
         App.log(1, "DAMAGE", res)
     end
+    local okLevels, levels = pcall(Match.levelsLine)
+    if okLevels and levels then
+        App.log(1, "LEVELS", levels)
+    end
+    Match.levelSeen = {}
     if not Match.random then
         local ok, res, res2 = pcall(Match.damageShares)
         if ok and res and canLearn and not Match.trainee then
@@ -48758,6 +49076,7 @@ function Match.finish()
             train = {
                 key = mode.key,
                 kind = mode.kind,
+                legend = mode.legend,
                 first = mode.first,
                 level = mode.level,
                 diff = mode.diff,
@@ -48966,7 +49285,7 @@ function Match.startTeam()
         App.log(1, "TEAM", string.format("the team put aside for %s isn't for this match (%s): your team stays", tostring(startTeam.why), tostring(Match.kind)))
         return
     end
-    if startTeam.at and os.time() - (tonumber(startTeam.at) or 0) > 1800 then
+    if not Modes.hasOwnTeam(startTeam.train) and startTeam.at and os.time() - (tonumber(startTeam.at) or 0) > 1800 then
         App.log(1, "TEAM", string.format("the team put aside for %s is more than 30 minutes old: your team stays", tostring(startTeam.why)))
         return
     end
@@ -48986,6 +49305,11 @@ function Match.startTeam()
             end
         end
     end
+    if Modes.hasOwnTeam(startTeam.train) then
+        local uuids, why = Modes.ownTeam(startTeam.train)
+        if not uuids then helper(why); return false end
+        startTeam.uuids, startTeam.must = uuids, true
+    end
     if workspace._DATA.GameStarted.Value then
         App.log(1, "TEAM", "too late for a team change before the first wave: " .. tostring(startTeam.why))
         if startTeam.must and not Training.same(Training.team(), startTeam.uuids) then
@@ -48999,7 +49323,7 @@ function Match.startTeam()
         if startTeam.train then
             startTeam.train.rec = Modes.rec(startTeam.train.key)
             startTeam.train.ldOverride = Simulator.slim(Match.ld)
-            if Config.autoTeam and not FarmHub.teamFor(startTeam.train, FarmHub.QUICK_SEARCH) then
+            if (Modes.hasOwnTeam(startTeam.train) or Config.autoTeam) and not FarmHub.teamFor(startTeam.train, FarmHub.QUICK_SEARCH) then
                 return false
             end
             Training.apply(startTeam.train)
@@ -49022,8 +49346,8 @@ function Match.startTeam()
         return
     end
     if startTeam.must then
-        if not ok or # team2 < 6 or not Training.same(team2, startTeam.uuids) then
-            helper(string.format("the team for this room didn't go on (%d of 6 units right)", (function()
+        if not ok or # team2 ~= #startTeam.uuids or not Training.same(team2, startTeam.uuids) then
+            helper(string.format("the requested team didn't go on (%d units right)", (function()
                 local count = 0
                 for _, member in ipairs(team2) do
                     if table.find(startTeam.uuids, member) then
@@ -53842,6 +54166,54 @@ function GUI.build()
         form.buildMain()
         GUI.quickForms = { form }
         form.load(Config.qsTask)
+        do
+            local selected = form.task.mode
+            local following = selected
+            local status = tab:Paragraph(Modes.ownTeamText(selected))
+            local shown, shownAt
+            local function refresh(force)
+                if not force and shownAt and Utils.now() - shownAt < 2 then
+                    return
+                end
+                shownAt = Utils.now()
+                local text = Modes.ownTeamText(selected)
+                if text ~= shown then
+                    shown = text
+                    status.Set(text)
+                end
+            end
+            local rows = {}
+            for _, key in ipairs({ "story", "legend", "raid", "infinite", "portal", "daily", "challenge", "artifact", "event", "dungeon" }) do
+                table.insert(rows, { text = key, value = key })
+            end
+            local picker = tab:Dropdown("Team For Mode", "Daily and Challenge have separate teams. Follows the Run setup mode.", rows, table.find({ "story", "legend", "raid", "infinite", "portal", "daily", "challenge", "artifact", "event", "dungeon" }, selected) or 1, function(_, key)
+                selected = key
+                refresh(true)
+            end)
+            local function followMode()
+                local changed = form.task.mode ~= following
+                if changed then
+                    following, selected = form.task.mode, form.task.mode
+                    picker.Refresh(rows, selected)
+                end
+                refresh(changed)
+            end
+            local originalGet = form.get
+            form.get = function() followMode(); return originalGet() end
+            GUI.refreshOwnTeam = followMode
+            tab:Button("💾", "Save Equipped Team For This Mode", "Keep these exact copies. The farm calculates placement for this lineup.", function()
+                followMode()
+                local ok, text = Modes.saveOwnTeam(selected)
+                refresh(true)
+                helper6("Team", text, ok and "success" or "warning")
+            end)
+            tab:Button("🧹", "Clear Team For This Mode", "Let the farm pick this mode team again.", function()
+                followMode()
+                local ok, text = Modes.setOwnTeam(selected, nil)
+                refresh(true)
+                helper6("Team", text, ok and "success" or "warning")
+            end)
+        end
         GUI.farmForms = GUI.farmForms or {}
         table.insert(GUI.farmForms, form)
         tab:Button("▶️", "Start", "Start the selected mode, map and run count", function()
@@ -55550,6 +55922,7 @@ function Match.etaText()
 end
 
 function GUI.update()
+    if GUI.refreshOwnTeam then GUI.refreshOwnTeam() end
     local now = Utils.now()
     if (Config.gfxLowCpu or Config.gfxLow) and GUI.lowCpuAt and now - GUI.lowCpuAt < 3 then return end
     GUI.lowCpuAt = now
