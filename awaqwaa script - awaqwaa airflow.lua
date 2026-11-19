@@ -10,7 +10,7 @@ local AIRFLOW_SOURCE = [====[
 -- Teleports use this edition's local cache instead of fetching the old UI script.
 -- Statically checked; not run inside Roblox.
 
-local VERSION = "2.26"
+local VERSION = "2.27"
 if _G.AA_SF and _G.AA_SF.alive then
     if _G.AA_SF.version == VERSION then
         warn("[awaqwaa] v" .. VERSION .. " is already running")
@@ -1719,6 +1719,19 @@ table.insert(CHANGELOG, 1, {
             "Clearer card message",
             "When every offered card would take the team under its floor and nothing is on Never Take, the log says so instead of mentioning Never Take.",
             "IMPROVED"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
+    v = "2.27",
+    date = "Nov 19, 2026",
+    title = "Choose what Auto Farm does",
+    items = {
+        {
+            "🧭",
+            "What Auto Farm does, on Home",
+            "Under Main switches: tick the modes Smart may play (it picks whichever pays best of them) and the jobs it does between runs, such as making your team stronger, evolving, summoning or redeeming codes. The same settings as on the other tabs, so both always agree. Tick Every Mode puts every mode back and turns off every Only this; Just Play unticks every job. A line below says what it will do now.",
+            "NEW"
         }
     }
 })
@@ -29986,6 +29999,148 @@ function Farming.deleteRoutine(name)
     return true
 end
 
+-- 2.27: Home → What Auto Farm does. One row per mode Smart may pick (the same On and Only this flags
+-- as Farming → Stages) and one per job between runs (the same switch as on its own tab).
+Farming.PICK_MODES = {
+    { value = "story", text = "Story", enable = { "firstClears", "farm" }, only = "onlyStory" },
+    { value = "infinite", text = "Infinite", enable = { "infinite" }, only = "onlyInfinite" },
+    { value = "portals", text = "Portals", enable = { "portals" }, only = "onlyPortals" },
+    { value = "raids", text = "Raids", enable = { "raids" }, only = "onlyRaids" },
+    { value = "artifact", text = "Artifact Stage", enable = { "artifact" }, only = "onlyArtifact" },
+    { value = "dungeon", text = "Dungeon", enable = { "dungeon" }, only = "onlyDungeons" },
+    { value = "challenges", text = "Challenges", enable = { "dailyChallenge", "challenge" }, only = "onlyChallenges" },
+    { value = "event", text = "Event (Summer Hunt)", enable = { "event" }, only = "onlyCoins" },
+}
+Farming.PICK_JOBS = {
+    { value = "team", text = "Make My Team Stronger" },
+    { value = "smartEvolve", text = "Smart Evolve" },
+    { value = "goals", text = "Farm Toward Goals" },
+    { value = "trainTakedowns", text = "Takedown Training" },
+    { value = "teamFuse", text = "Limit Break Core Units" },
+    { value = "autoSummon", text = "Auto Summon (gems)" },
+    { value = "snipeOn", text = "Banner Snipe (gems)" },
+    { value = "rewards", text = "Auto Rewards" },
+    { value = "codes", text = "Redeem Codes" },
+    { value = "goldShop", text = "Star Fruits For Gold" },
+}
+Farming.ONLY_KEYS = { "onlyStory", "onlyLegend", "onlyInfinite", "onlyPortals", "onlyRaids", "onlyArtifact", "onlyDungeons", "onlyChallenges", "onlyCoins" }
+
+-- Ticked: any of its On flags, or its Only this. Your own values, not a running session's.
+function Farming.pickOn(item)
+    if item.only and Farming.baseValue(item.only) then
+        return true
+    end
+    for _, key in ipairs(item.enable or { item.value }) do
+        if Farming.baseValue(key) then
+            return true
+        end
+    end
+    return false
+end
+
+function Farming.picked(list)
+    local values = {}
+    for _, item in ipairs(list) do
+        if Farming.pickOn(item) then
+            table.insert(values, item.value)
+        end
+    end
+    return values
+end
+
+-- Writes only the rows whose tick changed, so an Only this on a row that stays ticked is kept.
+function Farming.applyPicks(list, values)
+    local want, changed = {}, {}
+    for _, value in ipairs(values or {}) do
+        want [value] = true
+    end
+    for _, item in ipairs(list) do
+        local on = want [item.value] == true
+        if on ~= Farming.pickOn(item) then
+            for _, key in ipairs(item.enable or { item.value }) do
+                Farming.setBase(key, on)
+            end
+            if item.only and not on then
+                Farming.setBase(item.only, false)
+            end
+            if item.value == "teamFuse" then
+                Farming.setBase("fuseArmSig", "")
+            end
+            table.insert(changed, (on and "+" or "-") .. item.text)
+        end
+    end
+    if # changed == 0 then
+        return false
+    end
+    Farming.pickReset()
+    App.log(1, "FARM", "Auto Farm choices: " .. table.concat(changed, ", "))
+    return true
+end
+
+-- Every Only this off: Smart goes back to all ticked modes.
+function Farming.clearOnly()
+    local cleared = {}
+    for _, key in ipairs(Farming.ONLY_KEYS) do
+        if Farming.baseValue(key) then
+            Farming.setBase(key, false)
+            table.insert(cleared, key)
+        end
+    end
+    if # cleared == 0 then
+        return false
+    end
+    Farming.pickReset()
+    App.log(1, "FARM", "Only this cleared: " .. table.concat(cleared, ", "))
+    return true
+end
+
+-- The same resets as the switches on their own tabs.
+function Farming.pickReset()
+    Modes.lastScored = nil
+    local last = type(FarmHub) == "table" and FarmHub.last
+    if type(last) == "table" then
+        last.pick, last.teamPlan, last.summon, last.snipe = nil, nil, nil, nil
+    end
+    if type(Brain.str) == "table" then
+        Brain.str.next = nil
+    end
+end
+
+function Farming.pickText()
+    if not Farming.baseValue("master") then
+        return "Auto Farm is off: turn it on in Main switches."
+    end
+    local okEvent, eventNow = pcall(Modes.eventNow)
+    local only, on = {}, {}
+    if Farming.baseValue("onlyLegend") then
+        table.insert(only, "Legend Stages")
+    end
+    for _, item in ipairs(Farming.PICK_MODES) do
+        if item.only and Farming.baseValue(item.only) and (item.only ~= "onlyCoins" or (okEvent and eventNow ~= nil)) then
+            table.insert(only, item.text)
+        elseif Farming.pickOn(item) then
+            table.insert(on, item.text)
+        end
+    end
+    local text
+    if # only > 0 then
+        text = "Plays only " .. table.concat(only, ", ") .. " (Only this, Farming → Stages). Tick Every Mode brings the rest back."
+    elseif # on == 0 then
+        text = "No mode ticked: it plays nothing but Legend Stages a goal needs."
+    else
+        text = "Smart: plays whichever pays best of " .. table.concat(on, ", ") .. "."
+    end
+    text = text .. " Jobs between runs: " .. # Farming.picked(Farming.PICK_JOBS) .. " on."
+    local run = Farming.active()
+    if run then
+        text = text .. " " .. Farming.title(run) .. " is running: it plays its own task, these apply when it stops."
+    end
+    if not Farming.baseValue("play") then
+        text = text .. " Auto Play is off: you start runs yourself."
+    end
+    return text
+end
+
 function FarmHub.run()
     App.status("Mode", "in the lobby")
     local now = Utils.now()
@@ -51981,6 +52136,7 @@ GUI.LAYOUT = {
         Overview = { "Home", "", "Farm control", "Left" },
         ["Run setup"] = { "Home", "", "Run setup", "Left" },
         ["Main switches"] = { "Home", "", "Main switches", "Right" },
+        ["What Auto Farm does"] = { "Home", "", "Auto Farm: what it does", "Right" },
         Interface = { "Home", "", "Interface", "Left" },
         ["Right now"] = { "Home", "", "Current run", "Right" },
         ["At a glance"] = { "Home", "", "Session", "Right" },
@@ -54086,7 +54242,7 @@ function GUI.homeRows()
     end
     local list = {
     }
-    list.Playing = Modes.onlyOn() and ("Only " .. Modes.onlyText()) or "Smart: whatever pays best (Farm → Stages)"
+    list.Playing = Modes.onlyOn() and ("Only " .. Modes.onlyText()) or "Smart: whatever pays best of the ticked modes (Home → What Auto Farm does)"
     list.Focus = helper2(FarmHub.focusText)
     list.Training = Config.trainTakedowns and helper2(Training.text) or "off"
     list.Snipe = Config.snipeOn and Config.snipeUnit ~= "" and helper2(FarmHub.snipeText) or "off"
@@ -54242,6 +54398,105 @@ function GUI.build()
             helper(key, on)
         end)
         GUI.homeSwitches[key], ui[key] = handle, handle
+    end
+    tab:Section("What Auto Farm does")
+    do
+        local status = tab:Paragraph(Farming.pickText())
+        local shownText, shownAt
+        local pickers = {}
+        local function rowsOf(list)
+            local rows = {}
+            for _, item in ipairs(list) do
+                table.insert(rows, { text = item.text, value = item.value })
+            end
+            return rows
+        end
+        local function indexesOf(list)
+            local on, indexes = {}, {}
+            for _, value in ipairs(Farming.picked(list)) do
+                on [value] = true
+            end
+            for index, item in ipairs(list) do
+                if on [item.value] then
+                    table.insert(indexes, index)
+                end
+            end
+            return indexes
+        end
+        local function sameSet(shown, values)
+            local seen, count = {}, 0
+            for _, value in ipairs(type(shown) == "table" and shown or {}) do
+                seen [value] = true
+            end
+            for _, value in ipairs(values) do
+                if not seen [value] then
+                    return false
+                end
+                count = count + 1
+            end
+            return count == # (type(shown) == "table" and shown or {})
+        end
+        -- Ticks follow changes made on other tabs (at most every 2 s).
+        local function refresh(force)
+            if not force and shownAt and Utils.now() - shownAt < 2 then
+                return
+            end
+            shownAt = Utils.now()
+            for _, entry in ipairs(pickers) do
+                local values = Farming.picked(entry.list)
+                local ok, shown = pcall(entry.handle.Get)
+                if not ok or not sameSet(shown, values) then
+                    pcall(entry.handle.Set, values, true)
+                end
+            end
+            local text = Farming.pickText()
+            if text ~= shownText then
+                shownText = text
+                pcall(status.Set, text)
+            end
+        end
+        local function after(changed)
+            if changed then
+                App.saveSoon()
+                pcall(GUI.farmSync)
+                for _, item in ipairs(Farming.PICK_JOBS) do
+                    local handle = ui [item.value]
+                    if handle then
+                        pcall(handle.Set, Farming.baseValue(item.value) == true, true)
+                    end
+                end
+            end
+            refresh(true)
+        end
+        local function picker(title, desc, list)
+            local handle = tab:MultiSelect(title, desc, rowsOf(list), indexesOf(list), function(picked)
+                local values = {}
+                for _, index in ipairs(picked or {}) do
+                    if list [index] then
+                        table.insert(values, list [index].value)
+                    end
+                end
+                after(Farming.applyPicks(list, values))
+            end)
+            table.insert(pickers, { handle = handle, list = list })
+        end
+        picker("Modes To Play", "Smart plays whichever ticked mode pays best. Unticked ones never play.", Farming.PICK_MODES)
+        picker("Jobs Between Runs", "What it does in the lobby. (gems) means it spends gems.", Farming.PICK_JOBS)
+        tab:Button("✅", "Tick Every Mode", "Every mode back in and every Only this off.", function()
+            local all = {}
+            for _, item in ipairs(Farming.PICK_MODES) do
+                table.insert(all, item.value)
+            end
+            local cleared = Farming.clearOnly()
+            local ticked = Farming.applyPicks(Farming.PICK_MODES, all)
+            after(cleared or ticked)
+            helper6("Auto Farm", "Every mode is ticked: Smart picks whichever pays best", "success")
+        end)
+        tab:Button("🎮", "Just Play", "Untick every job between runs: it only plays.", function()
+            after(Farming.applyPicks(Farming.PICK_JOBS, {}))
+            helper6("Auto Farm", "No jobs between runs: it only plays", "default")
+        end)
+        GUI.refreshFarmPicks = refresh
     end
     tab:Section("Interface")
     ui.showAdvancedSettings = tab:Toggle("Show advanced settings", "Show all tabs for detailed settings and routines.", Config.showAdvancedSettings ~= false, function(on)
@@ -55923,6 +56178,7 @@ end
 
 function GUI.update()
     if GUI.refreshOwnTeam then GUI.refreshOwnTeam() end
+    if GUI.refreshFarmPicks then pcall(GUI.refreshFarmPicks) end
     local now = Utils.now()
     if (Config.gfxLowCpu or Config.gfxLow) and GUI.lowCpuAt and now - GUI.lowCpuAt < 3 then return end
     GUI.lowCpuAt = now
