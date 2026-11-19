@@ -10,7 +10,7 @@ local AIRFLOW_SOURCE = [====[
 -- Teleports use this edition's local cache instead of fetching the old UI script.
 -- Statically checked; not run inside Roblox.
 
-local VERSION = "2.23"
+local VERSION = "2.25"
 if _G.AA_SF and _G.AA_SF.alive then
     if _G.AA_SF.version == VERSION then
         warn("[awaqwaa] v" .. VERSION .. " is already running")
@@ -1587,6 +1587,110 @@ table.insert(CHANGELOG, 1, {
         }
     }
 })
+table.insert(CHANGELOG, 1, {
+    v = "2.24",
+    date = "Nov 19, 2026",
+    title = "Buffers that reach your damage",
+    items = {
+        {
+            "🎯",
+            "Attackers step under the buff",
+            "In a fast clear and in the kill zone, units a buffer raises now count the buff at a spot, as the other placements already did: they stand under all the rotation's copies when the road there is not much worse, instead of next to the squad.",
+            "FIX"
+        },
+        {
+            "📍",
+            "The squad stands by your real damage",
+            "Where the 4 buffer copies go is weighed by the damage each unit really deals in the match, its summons' included, so a summoner is no longer read as weak. A unit's spot in the placement plan counts as much as its copies on the field.",
+            "NEW"
+        },
+        {
+            "🔁",
+            "Relay copies priced by what they do",
+            "A 5th or 6th relay copy is bought by how often relay copies really cast (here and in past matches), not by a guess. At the match's end a BUFF line shows how much damage stood under the whole squad, under relay copies and outside the buff, and who stood outside.",
+            "NEW"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
+    v = "2.25",
+    date = "Nov 19, 2026",
+    title = "Your list of fixes",
+    items = {
+        {
+            "🏠",
+            "A simple Home",
+            "Home now has everything to start: mode, map, difficulty, runs, Start and Stop, the 8 main switches and one line on what the farm is doing. Show advanced settings (on by default) hides or shows the other tabs; a search or a shortcut to one shows them again.",
+            "NEW"
+        },
+        {
+            "🃏",
+            "Your own card list for the Summer Hunt",
+            "Next to Card Pick: Take First (in order) and Never Take, card titles separated by commas. Attack takes every Attack tier, Attack II only that one. A card that would leave your team too weak is still skipped; Never Take wins over everything, and only when every offered card is banned does Card Pick choose.",
+            "NEW"
+        },
+        {
+            "🏰",
+            "Dungeon paths with a forecast",
+            "The dungeon plan now reads every layer the game shows (also when it lists the next rooms under a room), carries curses into the rooms after them and keeps coins back when two shops come in a row. The plan line says which path, its chance to finish the dungeon, the chest gems it expects and why not the best other first room. If a layer is hidden, it says so and picks room by room as before.",
+            "IMPROVED"
+        },
+        {
+            "🚀",
+            "More ways to lighten the game",
+            "Performance → Lighting, 3D and FPS: Low Graphics Preset, Batch And Hide Effects (new effects too, in small batches), Pause 3D Outside Focus and Low CPU Panels. All of them undo themselves when switched off and never delete anything from the map.",
+            "NEW"
+        },
+        {
+            "🌾",
+            "Farms out of the way",
+            "Farms now look for spots up to 60 studs from the road (they stopped at 20) and take the one farthest from every road and off the planner's attacker spots, so the good spots stay free for damage. Battle → Farms Away From Road.",
+            "NEW"
+        },
+        {
+            "👥",
+            "With other players: hold the start",
+            "When another player is in the match, your attackers stand nearer the start of the road and leave the end to them. Alone, or with an enemy leaking, placement works as before. Battle → With Other Players: Hold The Start.",
+            "NEW"
+        },
+        {
+            "🪜",
+            "Buy order",
+            "Battle → Buy Order: Smart (as before), Farms first or Team first. Farms first maxes the farms, then puts every unit of the team down, then works towards Fused Hero, then plays as usual. The order only holds while the defense does: with enemies near the base the farm buys damage first.",
+            "NEW"
+        },
+        {
+            "💪",
+            "Upgrades go to the units that really hit",
+            "An upgrade is now weighed by the damage the unit really deals in the match (its summons' included), so a strong unit is upgraded before a weak one. After 40 s of saving with yen in hand, a useful buy that costs at most a third of it goes through (Spend Idle Yen).",
+            "IMPROVED"
+        },
+        {
+            "♾️",
+            "The infinite buff keeps its pace",
+            "Without the SPA curse (cooldown over twice the buff, like the 64-65 s seen in your matches) the copies now cast one every quarter of the cooldown, 14 s of overlap to spare instead of 4, and a copy steps in early when the last buff is about to end. With the curse Lenio's order is unchanged.",
+            "FIX"
+        },
+        {
+            "🧬",
+            "Fusion presses both",
+            "If no Fused Hero appears 0.7 s after the first parent's press, the partner's Fusion is pressed too.",
+            "FIX"
+        },
+        {
+            "🤖",
+            "The game's own Auto for buffers",
+            "Press Auto on any unit's ability once: the farm learns the game's Auto command. When a buff rotation is steady at its top, the squad is switched to the game's Auto and the farm stops pressing it; if the buff drops, the farm takes the rotation back. Battle → Use Game Auto.",
+            "NEW"
+        },
+        {
+            "⏱️",
+            "Time left",
+            "The match card shows the waves left as time (from the real length of the last waves), and the Record card shows gems per hour this session.",
+            "NEW"
+        }
+    }
+})
 local App = {
     alive = true,
     conns = {
@@ -1722,6 +1826,9 @@ Core.DEFAULTS = {
     studyRuns = 2,
     smartCharm = true,
     huntCards = "Secret Luck",
+    huntCardsFirst = "",
+    huntCardsNever = "",
+    showAdvancedSettings = true,
     skinSmart = false,
     starOpen = false,
     pearlFloor = 105000,
@@ -1733,6 +1840,11 @@ Core.DEFAULTS = {
     actives = true,
     autoBuff = true,
     autoBuffKind = "auto",
+    upgradeOrder = "Smart",
+    farmFar = true,
+    partyFront = true,
+    gameAuto = true,
+    idleSpend = true,
     autoStart = true,
     farmUnits = true,
     farmSpare = 2,
@@ -1782,6 +1894,10 @@ Core.DEFAULTS = {
     gfxLighting = false,
     gfx3dOff = false,
     gfxFps = 0,
+    gfxLow = false,
+    gfxBatchFx = false,
+    gfxUnfocused = false,
+    gfxLowCpu = false,
     qsTask = {
     },
     routines = {
@@ -17096,6 +17212,8 @@ do
     }
     Brain.buffCd = helper(readJson.buffCd) or {
     }
+    Brain.relayUp = helper(readJson.relayUp) or {
+    }
     Brain.ownSwap = helper(readJson.ownSwap)
     Brain.snipe = helper(readJson.snipe) or {
     }
@@ -18362,6 +18480,9 @@ end
 -- copy once only one is left and the last cast is a few seconds old. With four copies that is the
 -- known opening: #1, #2 four seconds later, #3 when #1's buff drops, #4 when #2's drops.
 Units.BUFF_FOLLOW, Units.BUFF_LEAD, Units.BUFF_COPIES = 4, 4, 4
+-- Even step (2.25): used when it leaves at least BUFF_STEP_MARGIN s of overlap; a copy also casts early when
+-- the only buff up has BUFF_RESCUE s left.
+Units.BUFF_STEP_MARGIN, Units.BUFF_RESCUE = 4, 2.5
 Units.BUFF_RELAY_MAX, Units.BUFF_RELAY_MIN, Units.BUFF_RELAY_GUARD = 6, 0.99, 2
 -- Copies the infinite buff needs, all within each other's range, before any of them casts.
 Units.BUFF_SQUAD = {
@@ -18516,6 +18637,15 @@ function Units.buffPlan(copies, cd, dur, base, cap, follow)
     else
         plan.continuous, plan.pairs = dur >= cd, false
     end
+    -- Even step (2.25): when Lenio's order can't run (cooldown over 2 × buff, no SPA curse: 64-65 s seen in real
+    -- matches), copies cast one every cd/copies seconds, so each cast lands while the last buff is still up with
+    -- dur - step to spare (14 s at 64/30) instead of the 4 s the old chain kept. Lenio's order stays as it was.
+    if copies >= 2 and not plan.pairs then
+        local step = math.max(plan.follow, cd / copies)
+        if dur - step >= Units.BUFF_STEP_MARGIN then
+            plan.step = step
+        end
+    end
     return plan
 end
 
@@ -18533,6 +18663,20 @@ function Units.buffDecide(plan, live, sinceCast, danger)
             return true, "starts the rotation"
         end
         return false, "held for a boss or pressure: too few copies to keep the buff up all the time"
+    end
+    if plan.step then
+        local since, latest = sinceCast or 99, 0
+        for _, buff in ipairs(live) do
+            latest = math.max(latest, buff.left or 0)
+        end
+        if since >= math.max(plan.follow, plan.step - 0.25) then
+            return true, string.format("next copy on the %.0fs step", plan.step)
+        end
+        if latest <= Units.BUFF_RESCUE and since >= plan.follow then
+            return true, "keeps the chain before the last buff ends"
+        end
+        local waitFor = math.min(plan.step - since, math.max(0, latest - Units.BUFF_RESCUE))
+        return false, string.format("next copy in %.0fs (one every %.0fs)", plan.step - since, plan.step), math.max(waitFor, plan.follow - since)
     end
     if (sinceCast or 99) < plan.follow then
         return false, string.format("%.0fs gap after the last cast", plan.follow - sinceCast), plan.follow - sinceCast
@@ -25796,6 +25940,7 @@ GUI.GFX_EFFECT = {
     ParticleEmitter = true,
     Trail = true,
     Beam = true,
+    Explosion = true,
     Smoke = true,
     Fire = true,
     Sparkles = true,
@@ -25837,6 +25982,7 @@ GUI.gfx = {
 }
 
 function GUI.gfxMode(kind)
+    if Config.gfxLow or (kind == "effect" and Config.gfxBatchFx) then return "hide" end
     local mode = kind == "texture" and Config.gfxTextures or Config.gfxEffects
     return (mode == "hide" or mode == "delete") and mode or "keep"
 end
@@ -25882,6 +26028,7 @@ function GUI.gfxKeepLook(instance)
 end
 
 function GUI.gfxHideProps(class)
+    if class == "Explosion" then return { Visible = false } end
     if class == "Decal" or class == "Texture" then
         return {
             LocalTransparencyModifier = 1
@@ -25966,9 +26113,11 @@ function GUI.gfxRestore(kind)
         local record = state.saved [instance]
         state.saved [instance], state.detached [instance] = nil, nil
         if record.parent then
+            state.restoring = true
             pcall(function()
                 instance.Parent = record.parent
             end)
+            state.restoring = nil
         else
             for name, value in pairs(record.old) do
                 pcall(function()
@@ -26003,13 +26152,15 @@ function GUI.gfxDelete(instance, kind)
 end
 
 -- late: added while playing (not found by the scan of what was already there).
-function GUI.gfxHandle(instance, late)
+function GUI.gfxHandle(instance, late, safeOnly)
+    -- Explosions are only touched by the new reversible effect options.
+    if instance.ClassName == "Explosion" and not (Config.gfxLow or Config.gfxBatchFx) then return end
     local kind = GUI.gfxKind(instance)
     if not kind then
         return
     end
     local mode = GUI.gfxMode(kind)
-    if mode == "keep" then
+    if mode == "keep" or (safeOnly and mode == "delete") then
         return
     end
     if kind == "texture" and (GUI.gfxBare(instance) or GUI.gfxKeepLook(instance)) then
@@ -26142,16 +26293,91 @@ function GUI.gfxFps(cap)
         state.fpsMissing = cap > 0 or nil
         return
     end
+    if cap > 0 and not state.fps then
+        local ok, previous = pcall(function() return getfpscap() end)
+        state.fpsOriginal = ok and tonumber(previous) or 60
+    end
     state.fpsMissing = nil
-    -- "Off" puts back Roblox's usual 60.
-    if pcall(setfpscap, cap > 0 and cap or 60) then
+    if pcall(setfpscap, cap > 0 and cap or state.fpsOriginal or 60) then
         state.fps = cap > 0 and cap or nil
+        if cap == 0 then state.fpsOriginal = nil end
     end
 end
 
--- Apply the Performance settings: called at start and on every change there.
-function GUI.gfxApply()
+-- One bounded queue for newly spawned effects. Disabling/reapplying invalidates the old worker.
+function GUI.gfxQueue(instance)
     local state = GUI.gfx
+    if not GUI.GFX_EFFECT[instance.ClassName] then return end
+    local queue = state.queue
+    if not queue then
+        queue = { list = {}, seen = {}, gen = state.gen }
+        state.queue = queue
+        task.defer(function()
+            task.wait()
+            local index = 1
+            while state.queue == queue and state.gen == queue.gen and index <= #queue.list do
+                local stop = math.min(#queue.list, index + 127)
+                while index <= stop do
+                    local object = queue.list[index]
+                    queue.list[index] = false
+                    queue.seen[object] = nil
+                    if object.Parent then pcall(GUI.gfxHandle, object, true, true) end
+                    index = index + 1
+                end
+                -- Effects keep coming during a farm: drop the handled part so the list stays short.
+                if index > 512 then
+                    local rest = {}
+                    for i = index, #queue.list do
+                        table.insert(rest, queue.list[i])
+                    end
+                    queue.list, index = rest, 1
+                end
+                task.wait()
+            end
+            if state.queue == queue then state.queue = nil end
+        end)
+    end
+    if not queue.seen[instance] then
+        queue.seen[instance] = true
+        table.insert(queue.list, instance)
+    end
+end
+
+function GUI.gfxFocus(on)
+    local state = GUI.gfx
+    if not on then
+        for _, conn in ipairs(state.focusConns or {}) do conn:Disconnect() end
+        state.focusConns, state.focused = nil, nil
+        return
+    end
+    if state.focusConns then return end
+    state.focusConns, state.focused = {}, true
+    local input = game:GetService("UserInputService")
+    local function setFocus(focused)
+        state.focused = focused
+        GUI.gfx3d(Config.gfx3dOff == true or not focused)
+    end
+    local ok = pcall(function()
+        table.insert(state.focusConns, input.WindowFocusReleased:Connect(function() setFocus(false) end))
+        table.insert(state.focusConns, input.WindowFocused:Connect(function() setFocus(true) end))
+    end)
+    if not ok then GUI.gfxFocus(false) end
+end
+
+-- Apply the Performance settings: called at start and on every change there.
+function GUI.gfxApply(safeOnly)
+    local state = GUI.gfx
+    if not (Config.gfxLow or Config.gfxBatchFx) then
+        for instance, record in pairs(state.saved) do
+            if instance.ClassName == "Explosion" then
+                for name, value in pairs(record.old or {}) do
+                    pcall(function() instance[name] = value end)
+                end
+                state.saved[instance] = nil
+                state.count.effect = math.max(0, state.count.effect - 1)
+            end
+        end
+    end
     for _, kind in ipairs({
         "texture",
         "effect"
@@ -26163,7 +26389,12 @@ function GUI.gfxApply()
     local any = GUI.gfxMode("texture") ~= "keep" or GUI.gfxMode("effect") ~= "keep"
     if any and not state.conn then
         state.conn = workspace.DescendantAdded:Connect(function(instance)
-            pcall(GUI.gfxHandle, instance, true)
+            if state.restoring then return end
+            if (Config.gfxLow or Config.gfxBatchFx) and GUI.GFX_EFFECT[instance.ClassName] then
+                GUI.gfxQueue(instance)
+            else
+                pcall(GUI.gfxHandle, instance, true)
+            end
         end)
     elseif not any and state.conn then
         pcall(function()
@@ -26172,6 +26403,7 @@ function GUI.gfxApply()
         state.conn = nil
     end
     state.gen = state.gen + 1
+    state.queue = nil
     if any then
         local gen = state.gen
         task.spawn(function()
@@ -26179,22 +26411,27 @@ function GUI.gfxApply()
                 if state.gen ~= gen then
                     return
                 end
-                pcall(GUI.gfxHandle, instance, false)
+                pcall(GUI.gfxHandle, instance, false, safeOnly)
                 if index % 250 == 0 then
                     task.wait()
                 end
             end
         end)
     end
-    GUI.gfxLighting(Config.gfxLighting == true)
-    GUI.gfx3d(Config.gfx3dOff == true)
-    GUI.gfxFps(Config.gfxFps)
+    GUI.gfxLighting(Config.gfxLighting == true or Config.gfxLow == true)
+    GUI.gfxFocus(Config.gfxUnfocused == true)
+    GUI.gfx3d(Config.gfx3dOff == true or (Config.gfxUnfocused == true and GUI.gfx.focused == false))
+    local cap = tonumber(Config.gfxFps) or 0
+    GUI.gfxFps(Config.gfxLow and cap == 0 and 30 or cap)
 end
 
 -- Everything back as the game draws it (the script is closing).
 function GUI.gfxOff()
     local state = GUI.gfx
     state.gen = state.gen + 1
+    state.queue = nil
+    GUI.gfxFocus(false)
+    GUI.lowCpuAt = nil
     if state.conn then
         pcall(function()
             state.conn:Disconnect()
@@ -26243,6 +26480,10 @@ function GUI.gfxText()
     elseif state.fpsMissing then
         table.insert(parts, "FPS cap: your executor has no setfpscap")
     end
+    if Config.gfxLow then table.insert(parts, "low graphics preset") end
+    if Config.gfxBatchFx then table.insert(parts, "batched effects") end
+    if Config.gfxUnfocused then table.insert(parts, "3D pauses outside focus") end
+    if Config.gfxLowCpu or Config.gfxLow then table.insert(parts, "panels refresh every 3s") end
     if # parts == 0 then
         return "Graphics as the game draws them."
     end
@@ -30229,6 +30470,76 @@ function Economy.farmPlan(farms, ctx, left)
     return best, bestValue - base, bestOrder
 end
 
+-- Buy order (2.25): stages of the chosen order go first while the defense holds. Inside a stage the usual
+-- rules decide (a farm still has to pay back and leave the defense keeping up); a stage with nothing worth
+-- buying passes to the next, and with the defense in trouble the order is skipped.
+Economy.ORDERS = {
+    "Smart",
+    "Farms first",
+    "Team first"
+}
+Economy.STAGES = {
+    ["Farms first"] = {
+        "farms",
+        "team",
+        "fused"
+    },
+    ["Team first"] = {
+        "team",
+        "farms",
+        "fused"
+    }
+}
+Economy.STAGE_WORDS = {
+    farms = "farms first",
+    team = "every unit down",
+    fused = "Fused Hero"
+}
+
+function Economy.inStage(option, stage)
+    if stage == "farms" then
+        return option.farm == true
+    elseif stage == "team" then
+        return option.place == true and not option.farm and option.firstCopy == true
+    elseif stage == "fused" then
+        return option.fusionStep == true or option.fusedUp == true
+    end
+    return false
+end
+
+function Economy.ordered(options, ctx)
+    local order = Economy.STAGES [Config.upgradeOrder]
+    if not order or ctx.leak or (ctx.attackers or 0) == 0 then
+        return Economy.decide(options, ctx)
+    end
+    local cover = Utils.clamp(ctx.cover or 0.6, 0.1, 1)
+    if (ctx.pressure or 0) >= math.min(Config.dangerReach, cover * 0.9) or (ctx.piling and (ctx.enemies or 0) >= 18) then
+        return Economy.decide(options, ctx)
+    end
+    -- The next waves checked against everything that can be bought (not just one stage): if the defense falls
+    -- behind, the order waits and the usual rules buy damage.
+    if ctx.coming and not Economy.keepsUp(ctx, options, 0, 0, 0) then
+        return Economy.decide(options, ctx)
+    end
+    for _, stage in ipairs(order) do
+        local subset = {
+        }
+        for _, option in ipairs(options) do
+            if Economy.inStage(option, stage) then
+                table.insert(subset, option)
+            end
+        end
+        if # subset > 0 then
+            local choice, why, waitText = Economy.decide(subset, ctx)
+            if choice or waitText then
+                local tag = string.format("%s: %s", tostring(Config.upgradeOrder), Economy.STAGE_WORDS [stage] or stage)
+                return choice, why and (tag .. " · " .. why) or why, waitText and (tag .. " · " .. waitText) or waitText
+            end
+        end
+    end
+    return Economy.decide(options, ctx)
+end
+
 function Economy.decide(options, ctx)
     local cover = Utils.clamp(ctx.cover or 0.6, 0.1, 1)
     local clearLimit = math.max(Config.clearSec, 0.7 * (ctx.roadSec or 50) * cover)
@@ -32962,6 +33273,8 @@ function Simulator.runRaw(arg1, arg2, arg3)
                             cost = cost,
                             gain = placeGain,
                             e = value,
+                            firstCopy = # list2 == 0 or nil,
+                            fusionStep = (pathFloor and (value == first or value == second) and not pathLead [value]) or nil,
                             train = value2 and (# list2 == 0 and "first" or "more") or nil
                         })
                         for i = 0, value.rows.max do
@@ -33054,7 +33367,7 @@ function Simulator.runRaw(arg1, arg2, arg3)
                     stats.paused [focusWhy] = (stats.paused [focusWhy] or 0) + 1
                 end
             end
-            local decide = Economy.decide(options, ctx)
+            local decide = Economy.ordered(options, ctx)
             if not decide or decide.cost > start then
                 break
             end
@@ -36318,16 +36631,11 @@ function Dungeon.payValue()
 end
 
 function Dungeon.pickGreedy(arg1)
-    local curses, lives = Dungeon.curses(arg1), Dungeon.lives(arg1)
+    local lives = Dungeon.lives(arg1)
     local res = Dungeon.res(arg1)
     local rooms = Dungeon.rooms(arg1)
-    local list = {
-    }
-    for _, room in ipairs(rooms) do
-        table.insert(list, tostring(room.r._r))
-    end
-    local text = table.concat(list, ",") .. string.format("|%d|%d|%d|%s", lives, res, curses, Modes.teamSig())
-    if Dungeon._pick and Dungeon._pick.sig == text then
+    local text = "greedy|" .. Dungeon.pickSignature(arg1)
+    if Dungeon._pick and Dungeon._pick.sig == text and os.clock() - (Dungeon._pick.at or 0) < 5 then
         return Dungeon._pick.x
     end
     local value, value2
@@ -36359,6 +36667,7 @@ function Dungeon.pickGreedy(arg1)
     value = value or value2
     Dungeon._pick = {
         sig = text,
+        at = os.clock(),
         x = value,
         rooms = rooms
     }
@@ -36477,35 +36786,61 @@ function Dungeon.cursePoints(arg1, curse)
 end
 
 function Dungeon.paths(arg1)
-    local list, top, layers = {
-    }, {
-    }, 0
+    local paths, top, layers, reason = {}, {}, 0, nil
+    local active = {}
     local function walk(container, prefix, parent)
-        for _, room in ipairs(Dungeon.list(container)) do
-            if # list >= Dungeon.MAX_PATHS then
-                return
-            end
-            room.parent = parent
-            if not parent then
-                table.insert(top, room)
-            end
-            local path = table.clone(prefix)
-            table.insert(path, room)
-            layers = math.max(layers, # path)
-            local nested = type(container) == "table" and container ["next" .. tostring(room.choice)] or nil
-            if type(nested) ~= "table" and type(room.r.next) == "table" then
-                nested = room.r.next
-            end
-            if # path < Dungeon.MAX_LAYERS and # Dungeon.list(nested) > 0 then
-                walk(nested, path, (parent or "") .. tostring(room.choice) .. ">")
-            else
-                table.insert(list, path)
+        if reason then return end
+        if type(container) ~= "table" or active[container] then
+            reason = "unknown or cyclic room structure"
+            return
+        end
+        active[container] = true
+        local rooms = Dungeon.list(container)
+        if #rooms == 0 then reason = "no visible rooms" end
+        for key, value in pairs(container) do
+            if tonumber(key) and (type(value) ~= "table" or tonumber(key) < 1 or tonumber(key) % 1 ~= 0) then
+                reason = "invalid room entry"
             end
         end
+        if reason then
+            active[container] = nil
+            return
+        end
+        for _, room in ipairs(rooms) do
+            local d = tonumber(room.r._d)
+            if not d or d % 1 ~= 0 or d < 1 or d > Dungeon.ROOMS or type(room.r._t) ~= "table"
+                or (#prefix > 0 and d ~= prefix[#prefix].d + 1)
+                or (#prefix == 0 and #top > 0 and d ~= top[1].d) then
+                reason = "unknown room depth or tags"
+                break
+            end
+            room.parent = parent
+            if #prefix == 0 then table.insert(top, room) end
+            local path = table.clone(prefix)
+            table.insert(path, room)
+            layers = math.max(layers, #path)
+            local nested = container["next" .. tostring(room.choice)]
+            -- Some game versions keep children on the room, even with an empty sibling nextN table.
+            if #Dungeon.list(nested) == 0 and type(room.r.next) == "table" then nested = room.r.next end
+            local children = Dungeon.list(nested)
+            if #children > 0 then
+                if d == Dungeon.ROOMS or #path >= Dungeon.MAX_LAYERS then
+                    reason = "visible layers exceed planner limits"
+                    break
+                end
+                walk(nested, path, (parent or "") .. tostring(room.choice) .. ">")
+            elseif #path == 1 and d < Dungeon.ROOMS then
+                reason = "second room layer is hidden"
+            else
+                table.insert(paths, path)
+                if #paths > Dungeon.MAX_PATHS then reason = "too many visible paths" end
+            end
+            if reason then break end
+        end
+        active[container] = nil
     end
-    walk(arg1 and arg1.next, {
-    }, nil)
-    return list, layers, top
+    walk(arg1 and arg1.next, {}, nil)
+    return paths, layers, top, reason
 end
 
 -- the average room on offer at each depth (rooms 1–5, 6–10, 11–15, 16–20): what earlier runs offered,
@@ -36541,20 +36876,22 @@ function Dungeon.futureRooms(visible)
     return out
 end
 
+-- Clearing a room refills tries. Only the first room uses the current game count.
+-- As in 2.11, charge lost tries in every room through room 20 without weighting by reach.
 function Dungeon.scorePath(arg1, path, ctx)
     local survive, other, tries = 1, 0, 0
     local chests, rare, coins = ctx.chests, ctx.rare, ctx.coins
-    local curses, rows = {
-    }, {
-    }
+    local curses, rows = {}, {}
     for j, room in ipairs(path) do
-        local p, sim = Dungeon.winP(room, # curses > 0 and table.clone(curses) or nil)
+        local p, sim = Dungeon.winP(room, #curses > 0 and table.clone(curses) or nil)
         local n = j == 1 and math.max(1, ctx.lives) or Dungeon.TRIES
         local clear = 1 - (1 - p) ^ n
         tries = tries + ((p > 0 and clear / p or n) - 1)
         survive = survive * clear
         local parts = Dungeon.roomParts(room, coins)
         coins = coins + parts.coins
+        -- A shop is a utility estimate, not a free chest or a promise to buy. Reserve its budget once.
+        if room.tags[Dungeon.T.SHOP] and coins >= 300 then coins = coins - 300 end
         chests, rare = chests + parts.chest, rare + parts.rare
         local points, blind = parts.points, nil
         if parts.curse then
@@ -36564,18 +36901,10 @@ function Dungeon.scorePath(arg1, path, ctx)
             table.insert(curses, parts.curse)
         end
         other = other + survive * points * Dungeon.POINT_GEMS
-        table.insert(rows, {
-            room = room,
-            p = p,
-            sim = sim,
-            clear = clear,
-            parts = parts,
-            blind = blind
-        })
+        table.insert(rows, { room = room, p = p, sim = sim, clear = clear, parts = parts, blind = blind })
     end
-    local last = path [# path]
-    local mult = 1
-    if # curses > 0 then
+    local last, mult = path[#path], 1
+    if #curses > 0 then
         local okA, withCurses = pcall(Dungeon.sim, last, table.clone(curses), nil, true)
         local okB, without = pcall(Dungeon.sim, last, nil, nil, true)
         if okA and okB and withCurses and without and (tonumber(without.p) or 0) > 0 then
@@ -36583,33 +36912,21 @@ function Dungeon.scorePath(arg1, path, ctx)
         end
     end
     local later = 0
-    for k = last.d + 1, Dungeon.ROOMS do
-        local p = Dungeon.priorP(k) * (2 + mult) / 3
+    for depth = last.d + 1, Dungeon.ROOMS do
+        local p = Dungeon.priorP(depth) * (2 + mult) / 3
         local clear = 1 - (1 - p) ^ Dungeon.TRIES
         tries = tries + ((p > 0 and clear / p or Dungeon.TRIES) - 1)
         survive = survive * clear
-        local room = ctx.future [math.min(4, math.max(1, math.ceil(k / 5)))]
+        local room = ctx.future[math.min(4, math.max(1, math.ceil(depth / 5)))]
         chests, rare = chests + room.chest, rare + room.rare
         other = other + survive * room.points * Dungeon.POINT_GEMS
         later = later + 1
     end
     local chestValue = (chests * ctx.chestG + rare * ctx.rareG) * survive
     local tryCost = tries * ctx.tryCost
-    return {
-        path = path,
-        rows = rows,
-        ev = chestValue + other - tryCost,
-        chestValue = chestValue,
-        other = other,
-        tryCost = tryCost,
-        tries = tries,
-        reach = survive,
-        chests = chests,
-        rare = rare,
-        curses = curses,
-        mult = mult,
-        later = later
-    }
+    return { path = path, rows = rows, ev = chestValue + other - tryCost,
+        chestValue = chestValue, other = other, tryCost = tryCost, tries = tries,
+        reach = survive, chests = chests, rare = rare, curses = curses, mult = mult, later = later }
 end
 
 function Dungeon.pathName(scored)
@@ -36629,7 +36946,7 @@ function Dungeon.planWhy(plan)
         skipped = string.format(" · %s scored higher (%d gems) but is skipped: %s", Dungeon.pathName(top), math.floor(top.ev + 0.5), top.path [1].blocked)
     end
     if not alt then
-        return "the only room on offer" .. skipped
+        return (#plan.top == 1 and "the only room on offer" or "no other room passes the curse safety check") .. skipped
     end
     local bits = {
     }
@@ -36660,9 +36977,9 @@ function Dungeon.planWhy(plan)
 end
 
 function Dungeon.plan(arg1)
-    local paths, layers, top = Dungeon.paths(arg1)
-    if # top == 0 then
-        return nil
+    local paths, layers, top, reason = Dungeon.paths(arg1)
+    if reason or #top == 0 then
+        return nil, reason or "no visible rooms"
     end
     local coins, held, heldRare = Dungeon.res(arg1)
     local chestG, rareG, source = Dungeon.chestGems()
@@ -36694,7 +37011,7 @@ function Dungeon.plan(arg1)
         if ok and res then
             table.insert(scored, res)
         else
-            App.log(1, "ERROR", "dungeon path: " .. tostring(res))
+            return nil, "path forecast failed: " .. tostring(res)
         end
         task.wait()
     end
@@ -36747,36 +37064,45 @@ function Dungeon.plan(arg1)
     return plan
 end
 
+-- Stable, typed content key: second-layer rooms, item identities/counts, learned values and settings matter.
+function Dungeon.pickSignature(arg1)
+    local active = {}
+    local function encode(value)
+        if type(value) ~= "table" then
+            local text = tostring(value)
+            return type(value) .. #text .. ":" .. text
+        end
+        if active[value] then return "cycle" end
+        active[value] = true
+        local entries = {}
+        for key, item in pairs(value) do table.insert(entries, encode(key) .. "=" .. encode(item)) end
+        table.sort(entries)
+        active[value] = nil
+        return "{" .. table.concat(entries, ";") .. "}"
+    end
+    return encode({ next = arg1 and arg1.next, items = Dungeon.items(arg1), lives = Dungeon.lives(arg1),
+        resources = arg1 and arg1._resources, team = Modes.teamSig(), sim = Config.sim,
+        killZone = Config.killZone, value = Config.dungeonValue, depth = Brain.dg.depth,
+        offers = Brain.dg.offers, pay = Brain.dg.pay })
+end
+
 function Dungeon.pick(arg1)
-    local res, res2, res3 = Dungeon.res(arg1)
-    local list = {
-    }
-    for _, room in ipairs(Dungeon.rooms(arg1)) do
-        table.insert(list, tostring(room.r._r))
-    end
-    local itemCount = 0
-    for _, item in pairs(Dungeon.items(arg1)) do
-        itemCount = itemCount + item
-    end
-    local text = "plan|" .. table.concat(list, ",") .. string.format("|%d|%d|%d|%d|%d|%s", Dungeon.lives(arg1), res, res2, res3, itemCount, Modes.teamSig())
-    if Dungeon._pick and Dungeon._pick.sig == text then
+    local sig = "plan|" .. Dungeon.pickSignature(arg1)
+    if Dungeon._pick and Dungeon._pick.sig == sig and os.clock() - (Dungeon._pick.at or 0) < 5 then
         return Dungeon._pick.x
     end
-    local ok, plan = pcall(Dungeon.plan, arg1)
-    if not ok then
-        App.log(1, "ERROR", "dungeon plan: " .. tostring(plan))
-    end
+    local ok, plan, reason = pcall(Dungeon.plan, arg1)
     if not ok or not plan or not plan.best then
+        reason = not ok and ("planner error: " .. tostring(plan)) or reason or "no scored paths"
         Dungeon._pick = nil
-        return Dungeon.pickGreedy(arg1)
+        local value = Dungeon.pickGreedy(arg1)
+        Dungeon._pick = Dungeon._pick or {}
+        Dungeon._pick.sig, Dungeon._pick.at, Dungeon._pick.fallback = sig, os.clock(), reason
+        App.log(1, "DUNGEON", "greedy fallback: " .. reason .. "; no reliable path forecast")
+        return value
     end
-    local value = plan.best.path [1]
-    Dungeon._pick = {
-        sig = text,
-        x = value,
-        rooms = plan.top,
-        plan = plan
-    }
+    local value = plan.best.path[1]
+    Dungeon._pick = { sig = sig, at = os.clock(), x = value, rooms = plan.top, plan = plan }
     return value
 end
 
@@ -36827,11 +37153,14 @@ function Dungeon.planLog(plan)
             entry.path [1].blocked and (" (skipped: " .. entry.path [1].blocked .. ")") or ""))
     end
     App.log(1, "DUNGEON", "chosen: " .. Dungeon.pathName(plan.best) .. " — " .. tostring(plan.why) .. " (* = the simulator couldn't play the room: depth prior only)")
+    App.log(1, "DUNGEON", Dungeon.planText(plan))
 end
 
 function Dungeon.planText(plan)
+    if not (plan and plan.best) then return "Plan: greedy choice; forecast unavailable" end
     local best = plan.best
-    return string.format("Plan: %s · reaches room 20 ≈%d%% · ≈%d gems expected (%d paths, %d room%s shown)", Dungeon.pathName(best), Dungeon.pct(best.reach), math.floor(best.ev + 0.5), # plan.scored, plan.layers, plan.layers == 1 and "" or "s")
+    return string.format("Plan: %s · finish ≈%d%% · ≈%d expected chest gems (net value %d) · %s · %d layers shown; later rooms estimated; clearing refills tries",
+        Dungeon.pathName(best), Dungeon.pct(best.reach), math.floor(best.chestValue + 0.5), math.floor(best.ev + 0.5), tostring(plan.why), plan.layers)
 end
 
 -- the rooms on offer, by depth: what an average room gives, for the rooms past what the game shows
@@ -39371,30 +39700,66 @@ function Match.planBuffSquad(unit, allyBuff, mates, cands, fighters)
                 if p then
                     table.insert(attackerPts, {
                         flat = buffFlat(p),
-                        dps = math.max(1, tonumber(f.dps) or 1)
+                        dps = math.max(1, tonumber(f.dps) or 1),
+                        id = f.id
                     })
                 end
             end
         end
     elseif allyBuff then
-        for _, item in ipairs(Match.buffShort(allyBuff)) do
+        -- Weighed by the damage each one really deals in this match, its summons' included (2.24).
+        local short = Match.buffShort(allyBuff)
+        Match.realWeigh(short)
+        for _, item in ipairs(short) do
             table.insert(attackerPts, {
                 flat = buffFlat(item.pos),
-                dps = math.max(1, tonumber(item.dps) or 1)
+                dps = math.max(1, tonumber(item.dps) or 1),
+                id = item.id
             })
         end
     end
     if Match.layout then
+        -- A planned spot counts as much as that unit's copies on the field (or the average attacker there),
+        -- and not where a copy of it already stands (2.24; each counted a flat 50 before).
+        local perId, total, n = {
+        }, 0, 0
+        for _, ap in ipairs(attackerPts) do
+            if ap.id then
+                local t = perId [ap.id] or {
+                    s = 0,
+                    n = 0
+                }
+                perId [ap.id] = t
+                t.s, t.n = t.s + ap.dps, t.n + 1
+            end
+            total, n = total + ap.dps, n + 1
+        end
+        local planned = {
+        }
         for id, order in pairs(Match.layout) do
             if not Units.isFarm(id) and not Units.allyBuff(id) and order [1] then
                 local _, base = Units.types(id)
                 if not allyBuff or not allyBuff.types or allyBuff.types [base] then
-                    table.insert(attackerPts, {
-                        flat = buffFlat(order [1]),
-                        dps = 50
-                    })
+                    local flat, stands = buffFlat(order [1]), false
+                    for _, ap in ipairs(attackerPts) do
+                        if ap.id == id and buffDistSq(ap.flat, flat) <= 9 then
+                            stands = true
+                            break
+                        end
+                    end
+                    if not stands then
+                        local t = perId [id]
+                        table.insert(planned, {
+                            flat = flat,
+                            dps = t and t.s / t.n or (n > 0 and total / n) or 50,
+                            id = id
+                        })
+                    end
                 end
             end
+        end
+        for _, ap in ipairs(planned) do
+            table.insert(attackerPts, ap)
         end
     end
     local pool = {
@@ -39709,11 +40074,13 @@ function Match.bestRelaySpot(unit, allyBuff, squadCopies, relayCopies, fighters,
             if not Units.isFarm(idValue) and not Units.allyBuff(idValue) and allyBuff.types [types2] then
                 local ok, res = pcall(Match.liveDps, tower, idValue)
                 table.insert(atkList, {
+                    model = tower,
                     flat = buffFlat(tower:GetPivot().Position),
                     dps = math.max(1, ok and tonumber(res) or 1)
                 })
             end
         end
+        Match.realWeigh(atkList)
     end
     local distant = {
     }
@@ -39842,6 +40209,8 @@ function Match.buffShort(allyBuff)
             if count < buffCopies then
                 local ok, res = pcall(Match.liveDps, unit, idValue)
                 table.insert(list2, {
+                    model = unit,
+                    id = idValue,
                     pos = flat,
                     base = types2,
                     n = count,
@@ -39852,6 +40221,178 @@ function Match.buffShort(allyBuff)
         end
     end
     return list2
+end
+
+-- ===== Real damage on the field (2.24) =====
+-- What each placed unit really deals a second: its own hits plus its summons' (the game's total_damage),
+-- over its time on the field. A summoner reads low on its own stats though its summons may do most of the
+-- team's damage, so where the buffers stand is weighed by this. Summons with no known parent are shared
+-- among the placed copies of their owner.
+Match.REAL_MIN_SEC = 15
+
+function Match.dealtRates()
+    local now = Utils.now()
+    local memo = Match.dealtMemo
+    if memo and now - memo.at < 1 then
+        return memo.map
+    end
+    pcall(Match.sampleHelpers)
+    local dealt, byId = {
+    }, {
+    }
+    for unit, rec in pairs(Match.ownDealt or {
+    }) do
+        dealt [unit] = (dealt [unit] or 0) + (tonumber(rec.v) or 0)
+    end
+    for _, rec in pairs(Match.helperDealt or {
+    }) do
+        local v = tonumber(rec.v) or 0
+        if v > 0 then
+            if rec.parent then
+                dealt [rec.parent] = (dealt [rec.parent] or 0) + v
+            elseif rec.owner then
+                byId [rec.owner] = (byId [rec.owner] or 0) + v
+            end
+        end
+    end
+    Match.fieldSince = Match.fieldSince or setmetatable({
+    }, {
+        __mode = "k"
+    })
+    local copies = {
+    }
+    for _, unit in ipairs(Match.mine or {
+    }) do
+        Match.fieldSince [unit] = Match.fieldSince [unit] or now
+        local stats = unit._stats
+        local id = stats and stats.id and stats.id.Value
+        if id and byId [id] then
+            copies [id] = copies [id] or {
+            }
+            table.insert(copies [id], unit)
+        end
+    end
+    for id, v in pairs(byId) do
+        local list = copies [id]
+        if list then
+            for _, unit in ipairs(list) do
+                dealt [unit] = (dealt [unit] or 0) + v / # list
+            end
+        end
+    end
+    local map = {
+    }
+    for unit, v in pairs(dealt) do
+        if v > 0 then
+            local rec = Match.ownDealt and Match.ownDealt [unit]
+            local since = rec and tonumber(rec.since) or Match.fieldSince [unit] or now
+            map [unit] = v / math.max(Match.REAL_MIN_SEC, now - since)
+        end
+    end
+    Match.dealtMemo = {
+        at = now,
+        map = map
+    }
+    return map
+end
+
+-- list: items with model and dps (liveDps). Units with real damage seen share the liveDps total of those
+-- units by their real damage a second; a unit with none seen yet (just placed) keeps its liveDps.
+function Match.realWeigh(list)
+    local ok, rates = pcall(Match.dealtRates)
+    if not ok or type(rates) ~= "table" then
+        return
+    end
+    local liveSum, rateSum = 0, 0
+    for _, item in ipairs(list or {
+    }) do
+        local rate = item.model and rates [item.model]
+        if rate and rate > 0 then
+            liveSum = liveSum + (tonumber(item.dps) or 0)
+            rateSum = rateSum + rate
+        end
+    end
+    if liveSum <= 0 or rateSum <= 0 then
+        return
+    end
+    for _, item in ipairs(list) do
+        local rate = item.model and rates [item.model]
+        if rate and rate > 0 then
+            item.live = item.dps
+            item.dps = math.max(1, liveSum * rate / rateSum)
+        end
+    end
+end
+
+-- ===== Buff at a spot (2.24) =====
+-- The bonus a unit of damage type types2 gets at a spot from the buffers on the field: for a rotation
+-- (Auto Buff) the rotation's average level times the share of its copies that reach the spot; for other
+-- buffers their level times their uptime. Every spot search scores spots by road × (1 + this), so a unit
+-- that a rotation raises stands under it when its road there is not much worse (the kill-zone and
+-- fast-clear searches counted only the road before, and units stood outside the squad). nil: no buffer
+-- on the field raises this type.
+function Match.buffBonusFn(fieldBuffers, types2, chainOn)
+    local list, groupSize = {
+    }, {
+    }
+    for _, fieldBuffer in ipairs(fieldBuffers or {
+    }) do
+        groupSize [fieldBuffer.b.attack] = (groupSize [fieldBuffer.b.attack] or 0) + 1
+        if fieldBuffer.b.types [types2] then
+            table.insert(list, {
+                fb = fieldBuffer,
+                flat = Utils.flat(fieldBuffer.pos)
+            })
+        end
+    end
+    if # list == 0 then
+        return nil
+    end
+    local avg = {
+    }
+    return function(valid)
+        local count, inside = 0, {
+        }
+        local flat = Utils.flat(valid)
+        for _, item in ipairs(list) do
+            local fieldBuffer = item.fb
+            local value = fieldBuffer.b.types [types2]
+            if (item.flat - flat).Magnitude <= fieldBuffer.range then
+                if fieldBuffer.b.chain and chainOn then
+                    -- The rotation only climbs for a unit every copy reaches: the bonus grows with each one.
+                    local attack = fieldBuffer.b.attack
+                    inside [attack] = (inside [attack] or 0) + 1
+                    local needSz = fieldBuffer.b.squad or Units.BUFF_COPIES
+                    local size = math.min(groupSize [attack] or 1, needSz)
+                    local inCount = math.min(inside [attack], size)
+                    local key = tostring(attack) .. ":" .. size .. ":" .. tostring(value)
+                    local average = avg [key]
+                    if not average then
+                        average = Units.buffAverage(fieldBuffer.b, size, value, true)
+                        avg [key] = average
+                    end
+                    count = math.max(count, average * inCount / size)
+                else
+                    count = math.max(count, math.min(value, count + value * fieldBuffer.b.uptime))
+                end
+            end
+        end
+        return count
+    end
+end
+
+-- Once per unit: a buff took it off the spot with the most road (road: its spot's road, top: the best road).
+function Match.buffSpotSay(unit, road, top, bonus)
+    if not (bonus and bonus > 0.001 and top and top > 0 and road and road < top * 0.999) then
+        return
+    end
+    Match.buffSaid = Match.buffSaid or {
+    }
+    if Match.buffSaid [unit.id] then
+        return
+    end
+    Match.buffSaid [unit.id] = true
+    App.log(1, "PLACE", string.format("%s stands under the buff (+%d%% damage there): its spot has %d%% of the road of the best spot outside it", Units.name(unit.id), math.floor(bonus * 100 + 0.5), math.floor(road / top * 100 + 0.5)))
 end
 
 function Match.spotRec(spotKey, spot, arg3)
@@ -40789,6 +41330,99 @@ function Match.holdSpot(arg1)
     return value, value3 or 0
 end
 
+-- Party front (2.25): other players hold the end of the road, so with another player in the match our attackers
+-- stand nearer the start. Off with a leak (the leak rules come first) and in card modes.
+function Match.partyFront()
+    if not Config.partyFront or Match.random or (Match.depth and Match.depth.leak) then
+        return false
+    end
+    local ok, players = pcall(function()
+        return # Players:GetPlayers()
+    end)
+    return ok and (tonumber(players) or 1) > 1
+end
+
+-- Farms far from the road (2.25): extra spots 26-60 studs out (the usual ones end at 20.5), built once per map.
+function Match.farmCandidates()
+    if Match.farmCandsFor == Match.cands and Match.farmCandsList then
+        return Match.farmCandsList
+    end
+    local list, seen = table.clone(Match.cands or {
+    }), {
+    }
+    local samples = Match.samples or {
+    }
+    for i = 1, # samples, 4 do
+        local sample = samples [i]
+        local sample2 = samples [math.min(# samples, i + 1)]
+        local flat = Utils.flat(sample2.pos - sample.pos)
+        if flat.Magnitude < 0.01 then
+            flat = Vector3.new(1, 0, 0)
+        end
+        flat = flat.Unit
+        local side = Vector3.new(- flat.Z, 0, flat.X)
+        for _, out in ipairs({
+            26,
+            33,
+            41,
+            50,
+            60
+        }) do
+            for _, sign in ipairs({
+                1,
+                - 1
+            }) do
+                local pos = sample.pos + side * out * sign
+                local key = string.format("%d,%d", math.floor(pos.X / 3), math.floor(pos.Z / 3))
+                if not seen [key] then
+                    seen [key] = true
+                    table.insert(list, pos)
+                end
+            end
+        end
+    end
+    Match.farmCandsFor, Match.farmCandsList = Match.cands, list
+    return list
+end
+
+Match.FARM_CLEAR, Match.FARM_FAR = 30, 60
+
+-- Higher is better: far from every road, little road within an attacker's reach, off the planner's attacker spots.
+function Match.farmFarScore(valid, range)
+    local flat = Utils.flat(valid)
+    -- The road part is fixed for a spot: memo per spot and range while the road samples stay the same.
+    if Match.farmMemoFor ~= Match.samples then
+        Match.farmMemoFor, Match.farmMemo = Match.samples, {
+        }
+    end
+    local key = string.format("%d,%d,%d", math.floor(flat.X), math.floor(flat.Z), math.floor(range))
+    local score = Match.farmMemo [key]
+    if not score then
+        local near, nearProg = math.huge, 0
+        for _, sample in ipairs(Match.samples or {
+        }) do
+            local d = ((sample.flat or Utils.flat(sample.pos)) - flat).Magnitude
+            if d < near then
+                near, nearProg = d, tonumber(sample.prog) or 0
+            end
+        end
+        -- Far from the road first; between equally far spots, the one by the road's later part (the map's end).
+        score = math.min(near, Match.FARM_FAR) + 3 * nearProg - Match.cover(valid, math.max(range, Match.FARM_CLEAR)) * 2 - Match.cover(valid, range) * 10
+        Match.farmMemo [key] = score
+    end
+    for id, spots in pairs(Match.layout or {
+    }) do
+        if not Units.isFarm(id) and type(spots) == "table" then
+            for _, spot in ipairs(spots) do
+                if spot and (Utils.flat(spot) - flat).Magnitude < 8 then
+                    return score - 200
+                end
+            end
+        end
+    end
+    return score
+end
+
 function Match.teamOpeningSpot(unit)
     if not Match.allies or #Match.allies == 0 or Match.wave() > 5 or Match.joinedMid then
         return nil
@@ -40933,6 +41567,8 @@ function Match.bestSpot(unit, isFarm, arg3)
             end
         end
     end
+    -- Buff at a spot (2.24): the same bonus in the kill-zone, fast-clear and general searches.
+    local buffAt = Match.buffBonusFn(fieldBuffers, types2, chainOn)
     local function inAllSquad(pos)
         if # squadCircles == 0 then
             return false
@@ -40945,7 +41581,8 @@ function Match.bestSpot(unit, isFarm, arg3)
         end
         return true
     end
-    if Match.layout and Match.layout [unit.id] and not isFarm and not arg3 then
+    local partyFront = not isFarm and not arg3 and not allyBuff and not Units.isFarm(unit.id) and Match.partyFront()
+    if Match.layout and Match.layout [unit.id] and not isFarm and not arg3 and not partyFront then
         local layoutSpot, layoutCover
         for _, value in ipairs(Match.layout [unit.id]) do
             local valid = Match.valid(value, unit.data)
@@ -41017,7 +41654,7 @@ function Match.bestSpot(unit, isFarm, arg3)
             end
         end
     end
-    if Match.killZone() and not isFarm and not arg3 and not allyBuff and not (depth and depth.leak) and not Units.isFarm(unit.id) then
+    if Match.killZone() and not partyFront and not isFarm and not arg3 and not allyBuff and not (depth and depth.leak) and not Units.isFarm(unit.id) then
         local range22 = range2 or range
         local list = {
         }
@@ -41047,6 +41684,8 @@ function Match.bestSpot(unit, isFarm, arg3)
             list2 [i] = count
         end
         local value, value2, value3
+        local zoneTop, zoneRoad = 0, {
+        }
         local r22Sq = range22 * range22
         local shapeMemo = Match.shapeInfo(unit)
         local ranked = shapeMemo and {
@@ -41070,6 +41709,11 @@ function Match.bestSpot(unit, isFarm, arg3)
                         end
                     end
                 end
+                zoneTop = math.max(zoneTop, count)
+                zoneRoad [valid] = count
+                if buffAt and count > 0 then
+                    count = count * (1 + buffAt(valid))
+                end
                 if ranked and count > 0 then
                     table.insert(ranked, {
                         p = valid,
@@ -41086,6 +41730,9 @@ function Match.bestSpot(unit, isFarm, arg3)
         if best then
             value, value2, value3 = best.p, best.v, best.c
         end
+        if value and value2 > 0 and buffAt then
+            Match.buffSpotSay(unit, zoneRoad [value], zoneTop, buffAt(value))
+        end
         if value and value2 > 0 then
             if not Match.zoneSaid then
                 Match.zoneSaid = true
@@ -41098,6 +41745,8 @@ function Match.bestSpot(unit, isFarm, arg3)
         local range22 = range2 or range
         local r22Sq = range22 * range22
         local value, value2, value3
+        local fastTop, fastRoad = 0, {
+        }
         local fastMemo = Match.shapeInfo(unit)
         local fastRanked = fastMemo and {
         } or nil
@@ -41121,6 +41770,11 @@ function Match.bestSpot(unit, isFarm, arg3)
                         end
                     end
                 end
+                fastTop = math.max(fastTop, count)
+                fastRoad [valid] = count
+                if buffAt and count > 0 then
+                    count = count * (1 + buffAt(valid))
+                end
                 if fastRanked and count > 0 then
                     table.insert(fastRanked, {
                         p = valid,
@@ -41137,6 +41791,9 @@ function Match.bestSpot(unit, isFarm, arg3)
         if best then
             value, value2, value3 = best.p, best.v, best.c
         end
+        if value and value2 > 0 and buffAt then
+            Match.buffSpotSay(unit, fastRoad [value], fastTop, buffAt(value))
+        end
         if value and value2 > 0 then
             return value, value3 or 0
         end
@@ -41152,7 +41809,7 @@ function Match.bestSpot(unit, isFarm, arg3)
         end
     end
     local tip = Config.community and not value and Core.TIPS [unit.id]
-    local flag = ((tip and tip.spot == "exit") or (not value and Match.needLastLine(unit))) and not (depth and depth.leak)
+    local flag = ((tip and tip.spot == "exit" and not partyFront) or (not value and not partyFront and Match.needLastLine(unit))) and not (depth and depth.leak)
     local mergeSpot = not (value or isFarm or allyBuff) and Match.mergeSpot(unit)
     local range4 = mergeSpot and Units.range(unit.u, 0) * 0.7
     local farmMergeSpot, value2
@@ -41163,6 +41820,10 @@ function Match.bestSpot(unit, isFarm, arg3)
     local list2 = isFarm and not farmMergeSpot and Match.random and Units.isFarm(unit.id) and Match.farmMergeOk() and {
     } or nil
     local cands = Match.cands
+    local farFarm = isFarm and Config.farmFar and Units.isFarm(unit.id) and not farmMergeSpot and not list2
+    if farFarm then
+        cands = Match.farmCandidates()
+    end
     local farmMergeSpot2, value22 = farmMergeSpot or mergeSpot, farmMergeSpot and value2 or range4
     if farmMergeSpot2 and value22 and value22 > 0 then
         cands = table.clone(Match.cands)
@@ -41214,11 +41875,6 @@ function Match.bestSpot(unit, isFarm, arg3)
             end
         end
     end
-    local groupSize = {
-    }
-    for _, fieldBuffer in ipairs(fieldBuffers) do
-        groupSize [fieldBuffer.b.attack] = (groupSize [fieldBuffer.b.attack] or 0) + 1
-    end
     local bestUnbuffedScore, bestUnbuffedRoad = nil, 0
     local fullSquadCands = {
     }
@@ -41236,7 +41892,7 @@ function Match.bestSpot(unit, isFarm, arg3)
         if valid then
             local cover2, rawRoad, unbuffedScore
             if isFarm then
-                cover2 = - Match.cover(valid, range)
+                cover2 = farFarm and Match.farmFarScore(valid, range) or - Match.cover(valid, range)
             elseif value then
                 cover2 = 0
                 local flat = Utils.flat(valid)
@@ -41281,27 +41937,12 @@ function Match.bestSpot(unit, isFarm, arg3)
                     cover = Match.cover(valid, range2) + cover * 0.25
                 end
                 cover2 = cover + (dens and 0 or (1 - Match.progressAt(valid)) * 0.5)
+                if partyFront then
+                    cover2 = cover2 * (0.5 + 1.5 * (1 - Match.progressAt(valid)))
+                end
                 unbuffedScore = cover2
                 rawRoad = Match.cover(valid, range)
-                local count = 0
-                local inside = {
-                }
-                for _, fieldBuffer in ipairs(fieldBuffers) do
-                    local value = fieldBuffer.b.types [types2]
-                    if value and (Utils.flat(fieldBuffer.pos) - Utils.flat(valid)).Magnitude <= fieldBuffer.range then
-                        if fieldBuffer.b.chain and chainOn then
-                            -- The rotation only climbs for a unit every copy reaches: the bonus grows with each one.
-                            local attack = fieldBuffer.b.attack
-                            inside [attack] = (inside [attack] or 0) + 1
-                            local needSz = fieldBuffer.b.squad or Units.BUFF_COPIES
-                            local size = math.min(groupSize [attack] or 1, needSz)
-                            local inCount = math.min(inside [attack], size)
-                            count = math.max(count, Units.buffAverage(fieldBuffer.b, size, value, true) * inCount / size)
-                        else
-                            count = math.max(count, math.min(value, count + value * fieldBuffer.b.uptime))
-                        end
-                    end
-                end
+                local count = buffAt and buffAt(valid) or 0
                 cover2 = cover2 * (1 + count)
                 if plainRanked and cover2 > 0 then
                     table.insert(plainRanked, {
@@ -41930,7 +42571,8 @@ function Match.sampleHelpers(arg1)
             local value = Match.ownDealt [unit] or {
                 id = stats.id.Value,
                 v = 0,
-                lvl = 0
+                lvl = 0,
+                since = Utils.now()
             }
             value.v = math.max(value.v, totalDamage.Value)
             value.lvl = math.max(value.lvl, stats:FindFirstChild("upgrade") and tonumber(stats.upgrade.Value) or 0)
@@ -41947,6 +42589,7 @@ function Match.sampleHelpers(arg1)
             local value = Match.helperDealt [child] or {
                 id = stats.id.Value,
                 owner = stats2 and stats2:FindFirstChild("id") and stats2.id.Value or nil,
+                parent = parentUnit.Value,
                 v = 0
             }
             value.v = math.max(value.v, totalDamage.Value)
@@ -41989,6 +42632,7 @@ function Match.watchHelpers()
                 local value = Match.helperDealt [inst] or {
                     id = stats.id.Value,
                     owner = idValue,
+                    parent = parentUnit.Value,
                     v = 0
                 }
                 value.v = math.max(value.v, totalDamage.Value)
@@ -42350,7 +42994,7 @@ function Match.buffGain(member)
             }) do
                 rate = math.max(rate, tonumber(v) or 0)
             end
-            local relayAvg = Units.buffAverage(allyBuff, need, rate, true) * math.min(1, allyBuff.uptime * 1.5)
+            local relayAvg = Units.buffAverage(allyBuff, need, rate, true) * Match.relayUptime(allyBuff)
             return unbuffedDps * relayAvg
         end
     end
@@ -42389,6 +43033,35 @@ function Match.buffGain(member)
         count = math.max(count, count2)
     end
     return count * (cd and 1 or 0.7)
+end
+
+-- ===== Relay copies: how much of the time their buff is really up (2.24) =====
+-- A relay copy casts only when the squad's buff has reached it and an attacker in its range is unbuffed, so
+-- it can be up far less than the guess min(1, uptime × 1.5) its buy counted on. The guess (or what past
+-- matches saw, Brain.relayUp) counts as one cooldown of relay time; the casts relays made here, each the
+-- buff's length, over their time on the field, outweigh it as they stand longer.
+function Match.relayGuess(allyBuff)
+    local saved = Brain.relayUp and Brain.relayUp [allyBuff.attack]
+    if saved and tonumber(saved.up) then
+        return Utils.clamp(tonumber(saved.up), 0, 1)
+    end
+    return math.min(1, (tonumber(allyBuff.uptime) or 0) * 1.5)
+end
+
+function Match.relayDur(allyBuff)
+    local learned = Brain.stack and Brain.stack [allyBuff.attack]
+    return learned and tonumber(learned.dur) or tonumber(allyBuff.time) or 30
+end
+
+function Match.relayUptime(allyBuff)
+    local guess = Match.relayGuess(allyBuff)
+    local state = Match.buffState and Match.buffState [allyBuff.attack]
+    local sec = state and tonumber(state.relaySec) or 0
+    if sec <= 0 then
+        return guess
+    end
+    local cd = math.max(1, tonumber(allyBuff.cd) or 60)
+    return Utils.clamp(((state.relayDone or 0) * Match.relayDur(allyBuff) + guess * cd) / (sec + cd), 0, 1)
 end
 
 function Match.buffWanted(member)
@@ -42707,6 +43380,81 @@ function Match.rollCheck(choice, options, ctx)
     return alt, why
 end
 
+-- Real damage against the estimate (2.25), per copy that has stood at least REAL_UP_SEC: Match.realWeigh shares
+-- the copies' estimated total by what each really deals (own hits and its summons). Memo for a second.
+Match.REAL_UP_SEC, Match.REAL_UP_MIN, Match.REAL_UP_MAX = 20, 0.35, 3
+Match.REAL_ZERO_SEC, Match.REAL_ZERO_UP = 40, 0.6
+
+function Match.realFactors()
+    local now = Utils.now()
+    local memo = Match.realFactorMemo
+    if memo and now - memo.at < 1 then
+        return memo.map
+    end
+    local map, list = {
+    }, {
+    }
+    local ok = pcall(function()
+        local since = Match.fieldSince or {
+        }
+        for _, unit in ipairs(Match.mine or {
+        }) do
+            local stats = unit._stats
+            local id = stats and stats.id and stats.id.Value
+            if id and not Units.isFarm(id) and not Units.allyBuff(id) and since [unit] and now - since [unit] >= Match.REAL_UP_SEC then
+                local okDps, dps = pcall(Match.liveDps, unit, id)
+                if okDps and (tonumber(dps) or 0) > 0 then
+                    table.insert(list, {
+                        model = unit,
+                        dps = dps
+                    })
+                end
+            end
+        end
+        Match.realWeigh(list)
+    end)
+    if ok then
+        local rated = 0
+        for _, item in ipairs(list) do
+            if item.live and item.live > 0 then
+                map [item.model] = Utils.clamp(item.dps / item.live, Match.REAL_UP_MIN, Match.REAL_UP_MAX)
+                rated = rated + 1
+            end
+        end
+        -- Measured nothing for REAL_ZERO_SEC while at least 2 others are measured: a careful 0.6, not the floor
+        -- (some damage may not be tracked).
+        local since = Match.fieldSince or {
+        }
+        if rated >= 2 then
+            for _, item in ipairs(list) do
+                if not map [item.model] and since [item.model] and now - since [item.model] >= Match.REAL_ZERO_SEC then
+                    map [item.model] = Match.REAL_ZERO_UP
+                end
+            end
+        end
+    end
+    Match.realFactorMemo = {
+        at = now,
+        map = map
+    }
+    return map
+end
+
+-- Yen left idle (2.25): after IDLE_SEC of saving, a useful buy that costs at most IDLE_SHARE of the yen in hand.
+Match.IDLE_SEC, Match.IDLE_SHARE = 40, 0.35
+
+function Match.idleBuy(options, money)
+    local best
+    for _, option in ipairs(options) do
+        if not option.farm and not option.relayPlace and (tonumber(option.cost) or 0) > 0 and option.cost <= money * Match.IDLE_SHARE and (tonumber(option.gain) or 0) > 0 then
+            if not best or option.gain / option.cost > best.gain / best.cost then
+                best = option
+            end
+        end
+    end
+    return best
+end
+
 function Match.econ()
     if Match.noBuy then
         return App.status("Economy", "keeping the last life: back to the lobby")
@@ -42830,6 +43578,8 @@ function Match.econ()
             end
         end
     end
+    -- Real damage (2.25): an upgrade's gain is scaled by what the copy really deals against what its stats say.
+    local realFactor = Match.realFactors()
     -- Attackers on the field are counted before the options (2.23), the same for every unit of the team.
     for _, member in ipairs(team) do
         if not Units.isFarm(member.id) and # (placedByUuid [member.uuid] or {
@@ -42898,7 +43648,7 @@ function Match.econ()
                     elseif Match.mergeHold(copy) then
                     else
                         local shieldHp, shieldCount = Match.shieldNow()
-                        local gain = (shieldHp > 0 and Economy.shieldGain(Match.liveDps(copy, member.id), rows [level], Units.dps(member.u, level + 1, Match.mod), nextRow, shieldHp, shieldCount, 1, Match.info and Match.info.eff) or Economy.upgradeGain(Match.liveDps(copy, member.id), rows, level, cost, upCostMul, Units.dps(member.u, level + 1, Match.mod), Match.reachOf(copy))) * trainBonus * Match.mergeBoost(copy) * Match.airBoost(copy) * Match.reach(copy) * Match.focusGain(copy)
+                        local gain = (shieldHp > 0 and Economy.shieldGain(Match.liveDps(copy, member.id), rows [level], Units.dps(member.u, level + 1, Match.mod), nextRow, shieldHp, shieldCount, 1, Match.info and Match.info.eff) or Economy.upgradeGain(Match.liveDps(copy, member.id), rows, level, cost, upCostMul, Units.dps(member.u, level + 1, Match.mod), Match.reachOf(copy))) * trainBonus * Match.mergeBoost(copy) * Match.airBoost(copy) * Match.reach(copy) * Match.focusGain(copy) * (realFactor [copy] or 1)
                         local bleedGain = Match.bleedGain(member.id, level, false)
                         gain = gain + bleedGain
                         gain = gain + Match.buffWider(member, copy, rows [level], nextRow)
@@ -42981,6 +43731,7 @@ function Match.econ()
                     place = true,
                     support = isBuffer or nil,
                     relayPlace = isRelayPlace,
+                    firstCopy = # copies == 0 or nil,
                     fusionStep = fusionStep or nil,
                     cost = cost,
                     gain = placeGain,
@@ -43009,8 +43760,9 @@ function Match.econ()
                 local estimate = liveDps * (nextLevel.damage / math.max(1, current.damage)) * (current.cd / math.max(0.1, nextLevel.cd))
                 table.insert(options, {
                     cost = cost,
-                    gain = Economy.upgradeGain(liveDps, fusionRows, level, cost, cost / math.max(1, nextLevel.cost), estimate) * Match.reach(tower),
+                    gain = Economy.upgradeGain(liveDps, fusionRows, level, cost, cost / math.max(1, nextLevel.cost), estimate) * Match.reach(tower) * (realFactor [tower] or 1),
                     m = tower,
+                    fusedUp = true,
                     what = string.format("upgrade Fused Hero to level %d", level + 1),
                 })
                 wantLeft = wantLeft + cost
@@ -43200,7 +43952,19 @@ function Match.econ()
         end
         Match.fusionPause = not focus and focusWhy or nil
     end
-    local choice, why, waitText = Economy.decide(options, ctx)
+    local choice, why, waitText = Economy.ordered(options, ctx)
+    if waitText and not savingNote and Config.idleSpend then
+        Match.saveSince = Match.saveSince or Utils.now()
+        if Utils.now() - Match.saveSince >= Match.IDLE_SEC then
+            local idle = Match.idleBuy(options, money)
+            if idle then
+                choice, why, waitText = idle, string.format("the yen sat %ds while %s", math.floor(Utils.now() - Match.saveSince), waitText), nil
+                Match.saveSince = nil
+            end
+        end
+    elseif not waitText then
+        Match.saveSince = nil
+    end
     if choice and choice.farm and not waitText then
         local ok, rolled, rolledWhy = pcall(Match.rollCheck, choice, options, ctx)
         if ok and rolled and rolled ~= choice then
@@ -43526,7 +44290,50 @@ function Match.fusionReady(source)
             end
         end
     end
-    return true
+    return true, bestPartner
+end
+
+-- Both abilities (2.25): the first press sometimes doesn't count and no Fused Hero appears. 0.7 s after the
+-- stronger parent's press, if no hero was added and the partner still stands with its Fusion ready, its
+-- ability is pressed too. A fusion that went through takes the partner off the field, so nothing more is sent.
+Match.FUSION_FOLLOW = 0.7
+
+function Match.fusionHeroes()
+    local count = 0
+    for _, unit in ipairs(Match.mine or {
+    }) do
+        local stats = unit:FindFirstChild("_stats")
+        if stats and stats:FindFirstChild("id") and stats.id.Value == Units.FUSION.hero then
+            count = count + 1
+        end
+    end
+    return count
+end
+
+function Match.fusionFollow(source, partner, heroesBefore)
+    Match.fusionRetryAt = math.max(Match.fusionRetryAt or 0, Utils.now() + Match.FUSION_FOLLOW + 3)
+    task.delay(Match.FUSION_FOLLOW, function()
+        if not App.alive or not partner or not partner.Parent then
+            return
+        end
+        if Match.fusionHeroes() > heroesBefore then
+            return
+        end
+        local stats = partner:FindFirstChild("_stats")
+        local attack = stats and stats:FindFirstChild("active_attack")
+        local cooldown, last = stats and stats:FindFirstChild("active_attack_cooldown"), stats and stats:FindFirstChild("last_active_cast")
+        if not (attack and cooldown and last and stats:FindFirstChild("id")) or Units.FUSION.attacks [stats.id.Value] ~= attack.Value then
+            return
+        end
+        if cooldown.Value - (tick() - last.Value) > 0 or Match.unitBusy [partner] then
+            return
+        end
+        Match.unitBusy [partner] = true
+        local okCall, ok = pcall(App.request, "active", "use_active_attack", partner)
+        Match.unitBusy [partner] = nil
+        ok = okCall and ok
+        App.log(1, "ABILITY", string.format("Fusion: no Fused Hero %.1fs after %s's press, so %s's ability was pressed too (%s)", Match.FUSION_FOLLOW, Units.name(source and source:FindFirstChild("_stats") and source._stats:FindFirstChild("id") and source._stats.id.Value or "?"), Units.name(stats.id.Value), ok and "sent" or "not sent"))
+    end)
 end
 
 -- [Removed in v2.5: Match.relayBuffChoice was obsolete dead code superceded by Auto Buff Match.autoBuffPick]
@@ -43702,6 +44509,7 @@ function Match.autoBuffGroups(clock)
             })
         end
     end
+    Match.realWeigh(fighters)
     Match.buffCdSeen = Match.buffCdSeen or {
     }
     for _, group in ipairs(order) do
@@ -43761,6 +44569,100 @@ function Match.recordBuffCooldowns()
     end
     if saved then
         App.saveSoon()
+    end
+end
+
+-- ===== Buff coverage over the match (2.24) =====
+-- While the rotation runs: the share of the damage it can raise that stands under all the squad's copies,
+-- under relay copies only, or outside, and who stands outside; and the relay copies' time on the field.
+function Match.buffCoverTick(group, state, members, relayCopies, need, now)
+    local dt = math.min(5, math.max(0, now - (state.tickAt or now)))
+    state.tickAt = now
+    if dt <= 0 or # members < need then
+        return
+    end
+    state.relaySec = (state.relaySec or 0) + dt * # (relayCopies or {
+    })
+    local reach = group.reach
+    if not (state.squad and reach and (reach.total or 0) > 0) then
+        return
+    end
+    local cov = state.cover or {
+        full = 0,
+        relay = 0,
+        none = 0,
+        sec = 0,
+        out = {
+        }
+    }
+    state.cover = cov
+    cov.sec = cov.sec + dt
+    cov.full = cov.full + dt * (reach.full or 0) / reach.total
+    cov.relay = cov.relay + dt * (reach.relay or 0) / reach.total
+    cov.none = cov.none + dt * (reach.unbuffed or 0) / reach.total
+    for _, f in ipairs(group.fighters or {
+    }) do
+        if f.id and group.buff.types [f.base] and (f.squadReach or 0) < # members and (f.relayReach or 0) == 0 then
+            cov.out [f.id] = (cov.out [f.id] or 0) + dt * (tonumber(f.dps) or 0) / reach.total
+        end
+    end
+end
+
+-- At the match's end: one BUFF line per rotation, and what the relay copies really gave (kept for the next buys).
+function Match.buffCoverLog()
+    local function pct(x)
+        return math.floor(x * 100 + 0.5)
+    end
+    for attack, state in pairs(Match.buffState or {
+    }) do
+        local allyBuff = state.id and Units.allyBuff(state.id)
+        local name = Units.name(state.id or attack)
+        local need = allyBuff and allyBuff.squad or Units.BUFF_COPIES
+        local cov = state.cover
+        if cov and cov.sec >= 10 then
+            local outs = {
+            }
+            for id, v in pairs(cov.out) do
+                if v / cov.sec >= 0.05 then
+                    table.insert(outs, {
+                        id = id,
+                        v = v / cov.sec
+                    })
+                end
+            end
+            table.sort(outs, function(a, b)
+                if a.v ~= b.v then
+                    return a.v > b.v
+                end
+                return tostring(a.id) < tostring(b.id)
+            end)
+            local parts = {
+            }
+            for i = 1, math.min(3, # outs) do
+                table.insert(parts, string.format("%s %d%%", Units.name(outs [i].id), pct(outs [i].v)))
+            end
+            App.log(1, "BUFF", string.format("%s: over %d s of the rotation, %d%% of the damage it can raise stood under all %d copies, %d%% under relay copies only, %d%% outside the buff%s", name, math.floor(cov.sec + 0.5), pct(cov.full / cov.sec), need, pct(cov.relay / cov.sec), pct(cov.none / cov.sec), # parts > 0 and (" · outside: " .. table.concat(parts, ", ")) or ""))
+        end
+        local sec = tonumber(state.relaySec) or 0
+        if allyBuff and sec >= 10 then
+            local cd = math.max(1, tonumber(allyBuff.cd) or 60)
+            local guess = Match.relayGuess(allyBuff)
+            local up = Utils.clamp((state.relayDone or 0) * Match.relayDur(allyBuff) / sec, 0, 1)
+            local kept = sec >= 2 * cd
+            if kept then
+                Brain.relayUp = Brain.relayUp or {
+                }
+                local saved = Brain.relayUp [attack]
+                local old = saved and tonumber(saved.up)
+                Brain.relayUp [attack] = {
+                    up = old and (old + (up - old) * 0.5) or up,
+                    n = (saved and tonumber(saved.n) or 0) + 1,
+                    at = os.time()
+                }
+                App.saveSoon()
+            end
+            App.log(1, "BUFF", string.format("%s: relay copies cast %d times in %d s on the field, so their buff was up about %d%% of their time (their buy counted on %d%%)%s", name, state.relayDone or 0, math.floor(sec + 0.5), pct(up), pct(guess), kept and "; the next buys use what was seen" or ""))
+        end
     end
 end
 
@@ -44028,6 +44930,329 @@ function Match.relayDecide(group, state, squad, relayCopies, top, now, nextSquad
     return nil
 end
 
+-- ===== Game Auto for abilities (2.25) =====
+Match.GameAuto = {
+    on = setmetatable({
+    }, {
+        __mode = "k"
+    }),
+    LOW_SEC = 12,
+    LOW_SHARE = 0.6,
+    BAN_SEC = 600
+}
+
+-- Watch the game's own calls: the first one with "auto" in its name and a unit of ours among its arguments is the
+-- Auto switch. Our own requests are skipped.
+function Match.GameAuto.learnHook()
+    if Match.GameAuto.hooked or type(Core.EP) ~= "table" or Utils.now() < (Match.GameAuto.hookRetry or 0) then
+        return
+    end
+    Match.GameAuto.hookRetry = Utils.now() + 30
+    local wrapped = 0
+    for key, fn in pairs(Core.EP) do
+        if type(fn) == "function" and tostring(key):lower():find("server", 1, true) then
+            local original = fn
+            local ok = pcall(function()
+                Core.EP [key] = function(...)
+                    if (Match.GameAuto.sending or 0) == 0 and App.alive then
+                        pcall(Match.GameAuto.heard, key, ...)
+                    end
+                    return original(...)
+                end
+            end)
+            if ok then
+                wrapped = wrapped + 1
+            end
+        end
+    end
+    Match.GameAuto.hooked = wrapped > 0
+    App.log(2, "AUTO", string.format("listening for the game's Auto command (%d endpoint call%s)", wrapped, wrapped == 1 and "" or "s"))
+end
+
+function Match.GameAuto.heard(via, ...)
+    local args = table.pack(...)
+    local first = 1
+    if args [1] == Core.EP then
+        first = 2
+    end
+    local name = args [first]
+    if type(name) ~= "string" or not name:lower():find("auto", 1, true) then
+        return
+    end
+    local shape, unitAt, boolAt, boolVal = {
+    }, nil, nil, nil
+    for i = first + 1, args.n do
+        local v = args [i]
+        if typeof(v) == "Instance" then
+            if v:FindFirstChild("_stats") and not unitAt and table.find(Match.mine or {
+            }, v) then
+                unitAt = i - first
+                table.insert(shape, "<unit>")
+            else
+                return
+            end
+        elseif type(v) == "boolean" and not boolAt then
+            boolAt, boolVal = i - first, v
+            table.insert(shape, "<on>")
+        elseif type(v) == "string" or type(v) == "number" then
+            table.insert(shape, v)
+        else
+            return
+        end
+    end
+    if not unitAt then
+        return
+    end
+    local known = Brain.autoCall
+    Brain.autoCall = {
+        via = tostring(via),
+        name = name,
+        shape = shape,
+        unitAt = unitAt,
+        boolAt = boolAt,
+        useSelf = first == 2 or nil,
+        at = os.time()
+    }
+    App.saveSoon()
+    if not known or known.name ~= name then
+        App.log(1, "AUTO", string.format("learned the game's Auto command: %s (%s)%s", name, boolAt and ("on/off, this press: " .. tostring(boolVal)) or "a toggle", boolAt and "" or " · the farm uses a toggle only where it can read the unit's Auto state"))
+    end
+end
+
+-- Names with "auto" the game offers, for the log only (never called blindly). Once per session.
+function Match.GameAuto.scan()
+    if Match.GameAuto.scanned then
+        return
+    end
+    Match.GameAuto.scanned = true
+    local names = {
+    }
+    pcall(function()
+        for _, remote in ipairs(ReplicatedStorage.endpoints.client_to_server:GetChildren()) do
+            if remote.Name:lower():find("auto", 1, true) then
+                table.insert(names, remote.Name)
+            end
+        end
+    end)
+    App.log(2, "AUTO", # names > 0 and ("game commands with 'auto' in the name: " .. table.concat(names, ", ")) or "no game command has 'auto' in its name")
+end
+
+-- The unit's Auto state if the game shows it (a BoolValue or a boolean attribute with "auto" in its name), else nil.
+function Match.GameAuto.state(unit)
+    local ok, res = pcall(function()
+        local holders = {
+        }
+        local stats = unit:FindFirstChild("_stats")
+        if stats then
+            table.insert(holders, stats)
+        end
+        table.insert(holders, unit)
+        for _, inst in ipairs(holders) do
+            if inst then
+                for _, child in ipairs(inst:GetChildren()) do
+                    if child:IsA("BoolValue") and child.Name:lower():find("auto", 1, true) then
+                        return child.Value
+                    end
+                end
+                for key, value in pairs(inst:GetAttributes()) do
+                    if type(value) == "boolean" and key:lower():find("auto", 1, true) then
+                        return value
+                    end
+                end
+            end
+        end
+        return nil
+    end)
+    if ok then
+        return res
+    end
+    return nil
+end
+
+function Match.GameAuto.usable()
+    local call = Brain.autoCall
+    return type(call) == "table" and type(call.name) == "string" and type(call.shape) == "table" and call.unitAt ~= nil
+end
+
+-- Switch the game's Auto on or off for one unit. Returns ok, why.
+function Match.GameAuto.set(unit, on)
+    if not Match.GameAuto.usable() then
+        return false, "the game's Auto command isn't learned yet"
+    end
+    local call = Brain.autoCall
+    local before = Match.GameAuto.state(unit)
+    if not call.boolAt then
+        if before == nil then
+            return false, "Auto is a toggle here and the unit's Auto state can't be read"
+        end
+        if before == on then
+            Match.GameAuto.on [unit] = on or nil
+            return true, "already"
+        end
+    end
+    local args = {
+    }
+    for i, v in ipairs(call.shape) do
+        if i == call.unitAt then
+            args [i] = unit
+        elseif i == call.boolAt then
+            args [i] = on
+        else
+            args [i] = v
+        end
+    end
+    local fn = Core.EP and Core.EP [call.via]
+    if type(fn) ~= "function" then
+        return false, "the game's endpoint " .. tostring(call.via) .. " is gone"
+    end
+    Match.GameAuto.sending = (Match.GameAuto.sending or 0) + 1
+    local done, ok, res = false, nil, nil
+    task.spawn(function()
+        if call.useSelf then
+            ok, res = pcall(fn, Core.EP, call.name, table.unpack(args, 1, # call.shape))
+        else
+            ok, res = pcall(fn, call.name, table.unpack(args, 1, # call.shape))
+        end
+        done = true
+    end)
+    local started = Utils.now()
+    while not done and Utils.now() - started < 5 do
+        task.wait(0.1)
+    end
+    Match.GameAuto.sending = math.max(0, (Match.GameAuto.sending or 1) - 1)
+    if not done then
+        return false, "no answer from the game in 5s"
+    end
+    if not ok then
+        return false, tostring(res)
+    end
+    if res == false then
+        return false, "the game refused it"
+    end
+    task.wait(0.5)
+    local after = Match.GameAuto.state(unit)
+    if after ~= nil and after ~= on then
+        return false, "the unit's Auto state didn't change"
+    end
+    Match.GameAuto.on [unit] = on or nil
+    return true, after == nil and "sent (the game shows no Auto state to check)" or "confirmed"
+end
+
+-- Called by the rotation each tick. Returns a status text while the game's Auto runs the squad, else nil.
+function Match.GameAuto.squadStep(group, state, squad, need, cap, now)
+    if not Config.gameAuto then
+        if state.gameAuto then
+            Match.GameAuto.release(group, state, "Use Game Auto was switched off", now, 0)
+        end
+        return nil
+    end
+    if state.gameAuto then
+        if not squad then
+            Match.GameAuto.release(group, state, "a squad copy left the field", now, 0)
+            return nil
+        end
+        local low = # (Match.enemies or {
+        }) > 0 and (group.seen or 0) < cap * Match.GameAuto.LOW_SHARE
+        if low then
+            state.autoLowSince = state.autoLowSince or now
+            if now - state.autoLowSince >= Match.GameAuto.LOW_SEC then
+                Match.GameAuto.release(group, state, string.format("the buff stayed under +%d%% for %ds", math.floor(cap * Match.GameAuto.LOW_SHARE * 100 + 0.5), Match.GameAuto.LOW_SEC), now, Match.GameAuto.BAN_SEC)
+                return nil
+            end
+        else
+            state.autoLowSince = nil
+        end
+        return string.format("the game's Auto casts the squad (+%d%% now)", math.floor((group.seen or 0) * 100 + 0.5))
+    end
+    if state.autoBusy then
+        return "switching the squad's Auto"
+    end
+    if not squad or now < (state.autoBan or 0) or not state.confirmed or (state.done or 0) < need * 2 or (group.seen or 0) < cap - 0.05 then
+        return nil
+    end
+    if not Match.GameAuto.usable() then
+        if not state.autoHint then
+            state.autoHint = true
+            App.log(1, "AUTO", string.format("%s: the rotation is steady at +%d%%. To hand it to the game's Auto, press Auto on any unit's ability once: the farm learns the command and switches the squad over (Use Game Auto)", Units.name(group.id), math.floor(cap * 100 + 0.5)))
+        end
+        return nil
+    end
+    state.autoBusy = true
+    task.spawn(function()
+        local done, why = {
+        }, nil
+        for _, copy in ipairs(squad) do
+            if not App.alive or not copy.model.Parent or not Config.gameAuto then
+                why = "the squad changed while switching"
+                break
+            end
+            local ok, res = Match.GameAuto.set(copy.model, true)
+            if not ok then
+                why = res
+                break
+            end
+            table.insert(done, copy.model)
+        end
+        if not why and not (Config.gameAuto and Config.actives and App.alive) then
+            why = "Use Game Auto or Auto Abilities was switched off meanwhile"
+        end
+        if why then
+            for _, model in ipairs(done) do
+                Match.GameAuto.set(model, false)
+            end
+            state.autoBan = Utils.now() + Match.GameAuto.BAN_SEC
+            App.log(1, "AUTO", string.format("%s: the game's Auto wasn't switched on (%s), the farm keeps casting the rotation", Units.name(group.id), tostring(why)))
+        else
+            state.gameAuto, state.autoLowSince = true, nil
+            App.log(1, "AUTO", string.format("%s: the rotation is steady at +%d%%, the game's Auto casts the %d squad copies now (the farm takes over again if the buff drops)", Units.name(group.id), math.floor((group.seen or 0) * 100 + 0.5), # done))
+        end
+        state.autoBusy = nil
+    end)
+    return "switching the squad to the game's Auto"
+end
+
+function Match.GameAuto.copiesOf(attack)
+    local list = {
+    }
+    for _, unit in ipairs(Match.mine or {
+    }) do
+        local stats = unit:FindFirstChild("_stats")
+        local active = stats and stats:FindFirstChild("active_attack")
+        if active and tostring(active.Value) == tostring(attack) then
+            table.insert(list, {
+                model = unit
+            })
+        end
+    end
+    return list
+end
+
+function Match.GameAuto.release(group, state, why, now, ban)
+    state.gameAuto, state.autoLowSince = nil, nil
+    state.autoBan = now + (ban or 0)
+    state.casts, state.last = {
+    }, - 99
+    local models = {
+    }
+    for _, copy in ipairs(group.copies or {
+    }) do
+        if Match.GameAuto.on [copy.model] then
+            table.insert(models, copy.model)
+        end
+    end
+    state.autoBusy = true
+    task.spawn(function()
+        for _, model in ipairs(models) do
+            if App.alive and model.Parent then
+                Match.GameAuto.set(model, false)
+            end
+            Match.GameAuto.on [model] = nil
+        end
+        state.autoBusy = nil
+    end)
+    App.log(1, "AUTO", string.format("%s: back to the farm's own rotation (%s)", Units.name(group.id), why))
+end
+
 function Match.autoBuffPick(now, clock)
     if not Units.chainOn() then
         Match.buffText = nil
@@ -44145,6 +45370,8 @@ function Match.autoBuffPick(now, clock)
                 group.reach = Match.buffReach(group.copies, group.fighters, group.buff.types, squadSet)
             end
         end
+        state.id = group.id
+        Match.buffCoverTick(group, state, members, relayCopies, need, now)
         local cd = group.cd > 0 and group.cd or group.buff.cd
         trace.cd, trace.dur, trace.uuid = cd, dur, group.uuid or trace.uuid
         local plan = Units.buffPlan(need, cd, dur, group.base, cap, group.buff.follow)
@@ -44203,6 +45430,10 @@ function Match.autoBuffPick(now, clock)
                 -- Once it runs it never waits for enemies or a boss: a pause would break the chain.
                 go, why, wait = Units.buffDecide(plan, live, now - state.last, true)
             end
+        end
+        local autoText = Match.GameAuto.squadStep(group, state, squad, need, cap, now)
+        if autoText then
+            go, why, wait = false, autoText, nil
         end
         local relayPick
         if go and not pick and best then
@@ -44320,7 +45551,7 @@ function Match.autoBuffCast(unit, stats, attack, types, askedAt)
     local copyNum = pending and pending.attack == attack and pending.copy or 0
     local copyLabel = isRelayCopy and string.format("relay #%d", copyNum) or (copyNum > 0 and string.format("copy #%d", copyNum) or "copy")
     local cast = {
-        at = Utils.now(),
+        at = askedAt,
         level = (pending and pending.attack == attack and pending.level) or 0,
         by = unit
     }
@@ -44405,7 +45636,21 @@ end
 
 function Match.actives()
     if not Config.actives then
+        -- Auto Abilities off: squads the game's Auto was casting are switched back.
+        for attack, state in pairs(Match.buffState or {
+        }) do
+            if state.gameAuto and not state.autoBusy then
+                Match.GameAuto.release({
+                    id = state.id,
+                    copies = Match.GameAuto.copiesOf(attack)
+                }, state, "Auto Abilities was switched off", Utils.now(), 0)
+            end
+        end
         return
+    end
+    if Config.gameAuto then
+        Match.GameAuto.learnHook()
+        Match.GameAuto.scan()
     end
     Match.unitBusy = Match.unitBusy or {}
     local now = tick()
@@ -44425,10 +45670,11 @@ function Match.actives()
                 local attackInfo = Units.attackInfo(activeAttack.Value)
                 local position = unit:GetPivot().Position
                 local rangeValue = stats.range.Value
-                local fusionReady, str, value, rotInterval, isRelay
+                local fusionReady, str, value, rotInterval, isRelay, fusePartner
                 local flag = Match.trialId == stats.id.Value and Brain.trial and Brain.trial.study and # Match.enemies > 0 and not Match.isGale(stats, tostring(activeAttack.Value))
                 if Units.FUSION.attacks[stats.id.Value] == activeAttack.Value then
-                    fusionReady, str = Match.fusionReady(unit), "Fusion: both partners reached upgrade 7"
+                    fusionReady, fusePartner = Match.fusionReady(unit)
+                    str = "Fusion: both partners reached upgrade 7"
                 elseif flag then
                     fusionReady, str = true, "on study: what it does"
                 elseif Match.isGale(stats, tostring(activeAttack.Value)) then
@@ -44556,10 +45802,14 @@ function Match.actives()
                         Match.fusionRetryAt = Utils.now() + 5
                     end
                     Match.readySince [unit] = nil
+                    local heroesBefore = fusePartner and Match.fusionHeroes() or 0
                     task.spawn(function()
                         local askedAt = Utils.now()
                         local ok = App.request("active", "use_active_attack", unit)
                         Match.unitBusy[unit] = nil
+                        if fusePartner then
+                            Match.fusionFollow(unit, fusePartner, heroesBefore)
+                        end
                         if isRelay then
                             Match.buffBusy = nil
                             Match.buffPending = relayPending
@@ -44729,13 +45979,63 @@ function Hunt.cardLuck(value)
     return count
 end
 
+-- Match titles, never the transient 1/2/3 option slots. Explicit id:/type:
+-- tokens also work when a server supplies those stable fields.
+function Hunt.cardToken(text)
+    return (tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", " "):lower())
+end
+
+function Hunt.cardList(text)
+    local ranks, count = {}, 0
+    for token in tostring(text or ""):gmatch("[^,;\r\n]+") do
+        token = Hunt.cardToken(token):gsub("^(%a+):%s+", "%1:")
+        if token ~= "" and token ~= "id:" and token ~= "type:" and not ranks[token] then
+            count = count + 1
+            ranks[token] = count
+        end
+    end
+    return ranks
+end
+
+-- "+ attack ii" -> "attack ii" (no sign) and "attack" (no tier).
+function Hunt.cardNames(title)
+    local full = Hunt.cardToken(title)
+    local bare = full:gsub("^[%+%-%s]+", "")
+    local base = bare:gsub("%s+[ivx]+$", "")
+    return full, bare, base
+end
+
+function Hunt.cardRank(card, ranks)
+    if type(card) ~= "table" then return nil end
+    local full, bare, base = Hunt.cardNames(card.title)
+    local rank = ranks[full] or ranks[bare] or ranks[base]
+    for _, field in ipairs({ "id", "option_type" }) do
+        local value = card[field]
+        if type(value) == "string" or type(value) == "number" then
+            local token = (field == "id" and "id:" or "type:") .. Hunt.cardToken(value)
+            local found = ranks[token]
+            if found and (not rank or found < rank) then rank = found end
+        end
+    end
+    return rank
+end
+
 function Match.huntChoose(arg1, wave)
+    if type(arg1) ~= "table" then
+        arg1 = {
+        }
+    end
     Match.fhP = Match.fhP or 1
     local floor = Hunt.floor()
     local leak = (Match.pressure or 0) >= Config.safeReach or (Match.depth and Match.depth.leak)
     local weatherStrength = Hunt.weatherStrength(Hunt.weatherNow())
     local huntCards = table.find(Hunt.CARD_PICKS, Config.huntCards) and Config.huntCards or "Smart"
     local value, value2, value3, value4
+    local allowed, allowedScore, allowedStrength, allowedGems, allowedRank
+    local bannedCount, unsafeCount = 0, 0
+    local notBanned, notBannedScore, notBannedStrength, notBannedGems
+    local first = Hunt.cardList(Config.huntCardsFirst)
+    local never = Hunt.cardList(Config.huntCardsNever)
     local list = {
     }
     for key, value5 in pairs(arg1) do
@@ -44767,7 +46067,32 @@ function Match.huntChoose(arg1, wave)
         if not value2 or log2 > value2 then
             value, value2, value3, value4 = key, log2, num, cardGems
         end
-        table.insert(list, string.format("%s) %s%s [%s] ×%.2f, %d gems: %s", tostring(key), tostring(type(value5) == "table" and value5.title or "?"), (type(value5) == "table" and value5.weather) and (" (" .. tostring(value5.weather) .. ")") or "", tostring(type(value5) == "table" and value5.option_type or "?"), num, math.floor(cardGems + 0.5), table.concat(list2, " + ")))
+        local banned = Hunt.cardRank(value5, never) ~= nil
+        local rank = Hunt.cardRank(value5, first)
+        if not banned and (notBannedScore == nil or log2 > notBannedScore) then
+            notBanned, notBannedScore, notBannedStrength, notBannedGems = key, log2, num, cardGems
+        end
+        if banned then
+            bannedCount = bannedCount + 1
+        elseif not flag then
+            unsafeCount = unsafeCount + 1
+        elseif allowed == nil or (rank and (not allowedRank or rank < allowedRank))
+            or (rank == allowedRank and log2 > allowedScore) then
+            allowed, allowedScore, allowedStrength, allowedGems, allowedRank = key, log2, num, cardGems, rank
+        end
+        local rule = banned and " / banned" or (not flag and " / unsafe" or (rank and (" / priority " .. rank) or ""))
+        table.insert(list, string.format("%s) %s%s [%s] ×%.2f, %d gems: %s", tostring(key), tostring(type(value5) == "table" and value5.title or "?") .. rule, (type(value5) == "table" and value5.weather) and (" (" .. tostring(value5.weather) .. ")") or "", tostring(type(value5) == "table" and value5.option_type or "?"), num, math.floor(cardGems + 0.5), table.concat(list2, " + ")))
+    end
+    if allowed ~= nil then
+        value, value3, value4 = allowed, allowedStrength, allowedGems
+        if allowedRank then huntCards = "priority " .. allowedRank .. " / " .. huntCards end
+    elseif notBanned ~= nil then
+        value, value3, value4 = notBanned, notBannedStrength, notBannedGems
+        App.log(1, "ROGUE", string.format("No safe card outside Never Take (%d banned, %d unsafe): the best card you didn't ban", bannedCount, unsafeCount))
+        huntCards = huntCards .. " fallback"
+    elseif value ~= nil then
+        App.log(1, "ROGUE", string.format("Every offered card is on Never Take (%d): using %s to keep the run moving", bannedCount, huntCards))
+        huntCards = huntCards .. " fallback"
     end
     return value, value3, value4, list, floor, leak, huntCards
 end
@@ -44775,6 +46100,11 @@ end
 function Match.huntPick(rogueOptions)
     local wave = Match.wave()
     local huntChoose, huntChoose2, huntChoose3, huntChoose4, huntChoose5, huntChoose6, huntChoose7 = Match.huntChoose(rogueOptions, wave)
+    if huntChoose == nil then
+        Match.rogueOptions = nil
+        App.log(1, "ROGUE", "No cards were offered; waiting for the next offer")
+        return false
+    end
     Match.fhP = Match.fhP * (huntChoose2 or 1)
     Match.rogueOptions = nil
     local ok, res = pcall(HttpService.JSONEncode, HttpService, Hunt.plain(rogueOptions))
@@ -47255,6 +48585,7 @@ function Match.finish()
             end
         end
     end
+    pcall(Match.buffCoverLog)
     pcall(Match.recordBuffCooldowns)
     local ok, res = pcall(Match.damageLine)
     if ok and res then
@@ -48074,6 +49405,8 @@ function Match.run()
     App.status("Match", label .. (Brain.pending and Brain.pending.key == Match.key and "" or " (not launched by the farm)"))
     local flag, num, now2 = false, - 1, Utils.now()
     local value, now3 = nil, nil
+    Match.waveStarts = {
+    }
     while App.alive do
         if Config.master and Config.battle then
             local ok2, res2 = pcall(function()
@@ -48184,6 +49517,12 @@ function Match.run()
                 end
                 if wave ~= num then
                     num, now2 = wave, Utils.now()
+                    if wave > 0 then
+                        table.insert(Match.waveStarts, now2)
+                        while # Match.waveStarts > 12 do
+                            table.remove(Match.waveStarts, 1)
+                        end
+                    end
                     if Match.infinite then
                         pcall(Match.infWave, wave)
                     end
@@ -50316,6 +51655,9 @@ GUI.NAV_SCHEMA = {
 GUI.LAYOUT = {
     Home = {
         Overview = { "Home", "", "Farm control", "Left" },
+        ["Run setup"] = { "Home", "", "Run setup", "Left" },
+        ["Main switches"] = { "Home", "", "Main switches", "Right" },
+        Interface = { "Home", "", "Interface", "Left" },
         ["Right now"] = { "Home", "", "Current run", "Right" },
         ["At a glance"] = { "Home", "", "Session", "Right" },
         ["Every part"] = { "Activity", "Systems", "Automation status", "Right" },
@@ -50422,7 +51764,7 @@ GUI.CONTROL_LAYOUT = {
     ["Simulate Now"] = { "Battle", "Planner", "Plan", "Left" },
     ["Equip Best Team"] = { "Battle", "Planner", "Plan", "Left" },
     ["Restore My Team"] = { "Battle", "Planner", "Plan", "Left" },
-    ["Auto Farm"] = { "Home", "", "Start here", "Left" },
+    ["Auto Farm"] = { "Home", "", "Main switches", "Right" },
     ["Go To Lobby"] = { "Home", "", "Farm control", "Left" },
     ["Start Farming Again"] = { "Home", "", "Farm control", "Left" },
     ["Log Level"] = { "Activity", "Log", "Logging", "Right" },
@@ -50439,6 +51781,11 @@ GUI.SHORT_TEXT = {
     ["Auto Buff"] = { "Auto Buff", "Rotates Commander / Windsong / Leafy copies and plans around it." },
     ["Auto Buff Type"] = { "Buff type", "Auto, or keep only Physical or only Magic buffers." },
     ["Smart Targeting"] = { "Smart targeting", "Control units hold the front, heavy hitters take the boss." },
+    ["Use Game Auto"] = { "Use the game's Auto", "A steady buff rotation is handed to the game's Auto button." },
+    ["Farms Away From Road"] = { "Farms far from the road", "Farms keep the good spots free for damage." },
+    ["With Other Players: Hold The Start"] = { "Party: hold the start", "With other players, stand near the road's start." },
+    ["Buy Order"] = { "Buy order", "Smart, Farms first or Team first (only while safe)." },
+    ["Spend Idle Yen"] = { "Spend idle yen", "Small useful buys while saving for a big one." },
     ["Use The Simulator"] = { "Simulate before playing", "Predicts each mode with your team. The planner needs this ON." },
     ["Search For Best Spots"] = { "Plan unit spots", "Tries spots for each attacker when a match starts." },
     ["Plan Best Teams"] = { "Search for the best team", "Compares lineups built from all your units for the next mode." },
@@ -50518,8 +51865,22 @@ GUI.PAGE_HELP = {
 function GUI.prepareNavigation(window)
     GUI.Nav, GUI.Blocks = {}, {}
     for _, section in ipairs(GUI.NAV_SCHEMA) do
-        local root = window:CreateTab({ Name = section.Name, Icon = section.Icon })
-        local entry = { Root = root, Pages = {} }
+        local advanced = section.Name ~= "Home"
+        local root = window:CreateTab({
+            Name = section.Name, Icon = section.Icon,
+            PageTitle = advanced and ("Advanced · " .. section.Name) or "Home",
+            Desc = advanced and "Advanced settings" or "Choose a run, then press Start.",
+        })
+        -- This bundled Airflow exposes no Tab:SetVisible. Its navigation button
+        -- is a GuiObject; guard Visible because its delayed intro calls popIn.
+        if advanced and root._button then
+            table.insert(App.conns, root._button:GetPropertyChangedSignal("Visible"):Connect(function()
+                if Config.showAdvancedSettings == false and root._button.Visible then
+                    root._button.Visible = false
+                end
+            end))
+        end
+        local entry = { Root = root, Pages = {}, Advanced = advanced }
         GUI.Nav[section.Name] = entry
         if section.Pages then
             for _, spec in ipairs(section.Pages) do
@@ -50591,6 +51952,44 @@ function GUI.controlDependency(name)
     if name == "Farm Waves To Spare" then return function() return Config.farmUnits == true end end
 end
 
+-- Home and Advanced show the same user preferences, including during a
+-- routine overlay. Silent Set updates flags as well as the visible controls.
+function GUI.syncHomeSwitches()
+    for key, handle in pairs(GUI.homeSwitches or {}) do
+        local value = Farming.baseValue(key)
+        pcall(handle.Set, value, true)
+        local other = GUI.UI[key]
+        if other and other ~= handle then pcall(other.Set, value, true) end
+    end
+    if GUI.UI.showAdvancedSettings then
+        pcall(GUI.UI.showAdvancedSettings.Set, Config.showAdvancedSettings ~= false, true)
+    end
+end
+
+function GUI.applyAdvancedSettings()
+    if not GUI.Nav or not GUI.NativeWindow then return end
+    local advanced = Config.showAdvancedSettings ~= false
+    if not advanced and GUI.NativeWindow.CurrentTab ~= GUI.Nav.Home.Root then
+        GUI.NativeWindow:SelectTab(GUI.Nav.Home.Root)
+    end
+    for _, entry in pairs(GUI.Nav) do
+        if entry.Advanced then
+            entry.Root._userVisible = advanced
+            if entry.Root._button then
+                entry.Root._button.Visible = advanced and GUI.NativeWindow._introDone == true
+            end
+        end
+    end
+    if GUI.shortcutBlock then GUI.shortcutBlock:SetVisible(advanced) end
+end
+
+function GUI.showAdvanced()
+    Farming.setBase("showAdvancedSettings", true)
+    GUI.applyAdvancedSettings()
+    GUI.syncHomeSwitches()
+    App.saveSoon()
+end
+
 function GUI.go(rootName, pageName)
     local entry = assert(GUI.Nav[rootName], "Unknown navigation target")
     GUI.NativeWindow:SelectTab(entry.Root)
@@ -50599,6 +51998,7 @@ end
 
 function GUI.shortcuts()
     local block = GUI.block("Home", "", "Go to", "Left")
+    GUI.shortcutBlock = block
     local links = {
         { "Modes", "Farming", "Stages" }, { "Goals", "Units", "Goals" }, { "Summon", "Units", "Summon" },
         { "Fusion", "Units", "Fusion" }, { "Planner", "Battle", "Planner" }, { "Logs", "Activity", "Log" },
@@ -50614,7 +52014,9 @@ function GUI.shortcuts()
 end
 
 function GUI.flag(page, name)
-    local base = "AA/" .. page.Name .. "/" .. page.GroupName .. "/" .. name
+    -- Keep the existing master-switch profile flag after moving it on Home.
+    local groupName = page.Name == "Home" and name == "Auto Farm" and "Overview" or page.GroupName
+    local base = "AA/" .. page.Name .. "/" .. groupName .. "/" .. name
     GUI.flagCounts = GUI.flagCounts or {}
     local n = (GUI.flagCounts[base] or 0) + 1
     GUI.flagCounts[base] = n
@@ -51135,7 +52537,7 @@ function GUI.page(window, name, icon)
             ["Save Settings"] = "save", ["Unload"] = "power",
         }
         local displayName, shortDesc = GUI.controlText(title, desc)
-        local primary = { ["Simulate Now"] = true, ["Start Farming Again"] = true, ["Start Farming"] = true, ["Start Routine"] = true }
+        local primary = { ["Start"] = true, ["Simulate Now"] = true, ["Start Farming Again"] = true, ["Start Farming"] = true, ["Start Routine"] = true }
         return GUI.controlGroup(self, title):CreateButton({
             Name = displayName, Desc = shortDesc, Tooltip = desc, Icon = icons[title] or "chevron-right",
             Style = primary[title] and "Primary" or nil,
@@ -51231,7 +52633,16 @@ function GUI.window(Airflow)
     })
     GUI.NativeWindow = window
     GUI.prepareNavigation(window)
-    GUI.block("Home", "", "Start here", "Left")
+    -- Search results and existing shortcuts may open an advanced tab. Reveal
+    -- Advanced first, including its preference switch, instead of a hidden page.
+    local selectTab = window.SelectTab
+    function window:SelectTab(target)
+        if target ~= GUI.Nav.Home.Root and Config.showAdvancedSettings == false then
+            GUI.showAdvanced()
+        end
+        return selectTab(self, target)
+    end
+    GUI.block("Home", "", "Run setup", "Left")
     GUI.block("Battle", "Planner", "Plan", "Left")
     GUI.skipInfo = GUI.paragraph(GUI.block("Farming", "Rules", "Unavailable modes", "Right"), "Waiting for the first plan.")
     local controller = { Native = window }
@@ -51818,6 +53229,18 @@ GUI.FARM_ADV = {
     }
 }
 
+-- Home edits the existing Quick Start task. Routine editors are independent.
+function GUI.saveQuickTask(task, sender)
+    if GUI.syncingQuickTask then return end
+    GUI.syncingQuickTask = true
+    Config.qsTask = Farming.copy(task)
+    App.saveSoon()
+    for _, form in ipairs(GUI.quickForms or {}) do
+        if form ~= sender then pcall(form.load, Config.qsTask) end
+    end
+    GUI.syncingQuickTask = false
+end
+
 function GUI.farmForm(tab, onChange)
     local form = {
         task = Farming.newTask(),
@@ -52029,6 +53452,7 @@ function GUI.farmSync()
             magic = "Magic"
         }) [tostring(Farming.baseValue("autoBuffKind"))] or "Auto", true)
     end
+    GUI.syncHomeSwitches()
     GUI.farmProgress()
 end
 
@@ -52376,6 +53800,7 @@ function GUI.build()
             pcall(Farming.stop, arg1 == "master" and "you turned Auto Farm off" or "you turned Auto Play off")
         end
         App.saveSoon()
+        GUI.syncHomeSwitches()
     end
     local function helper2(arg1, arg2, arg3, arg4)
         ui [arg4] = arg1:Toggle(arg2, arg3, Config [arg4], function(arg1)
@@ -52409,36 +53834,50 @@ function GUI.build()
         end
     end
     local tab = window:Tab("🏠", "Home")
-    helper7(tab, "Turn it on and watch it work. Every other tab is for when you want to choose something yourself.")
-    local startGroup = GUI.block("Home", "", "Start here", "Left")
-    startGroup:CreateLabel({ Text = "<b>How to start:</b> turn the main switch on. When the four lines below are green, it runs by itself." })
-    ui.master = tab:Toggle("Auto Farm", "Picks the modes, plays them and runs your picks. Off: it plays nothing, but the summons, fuses and stars you switched on still run in the lobby", Config.master, function(arg1)
-        helper("master", arg1)
-        window:Status(arg1 and "▶ Farming" or "⏸ Paused")
+    tab:Section("Run setup")
+    tab:Label("Choose a mode and map. Start runs the selected Quick Start task.")
+    do
+        local form
+        form = GUI.farmForm(tab, function(task) GUI.saveQuickTask(task, form) end)
+        form.buildMain()
+        GUI.quickForms = { form }
+        form.load(Config.qsTask)
+        GUI.farmForms = GUI.farmForms or {}
+        table.insert(GUI.farmForms, form)
+        tab:Button("▶️", "Start", "Start the selected mode, map and run count", function()
+            local ok, text = Farming.start("quick", "Quick Start", { form.get() })
+            helper6("Farming", text, ok and "success" or "warning")
+        end)
+        tab:Button("⏹️", "Stop", "Finish this match, then stop starting runs", function()
+            local _, text = Farming.stop("you pressed Stop on Home")
+            helper6("Farming", text, "default")
+        end)
+    end
+    tab:Section("Main switches")
+    GUI.homeSwitches = {}
+    for _, spec in ipairs({
+        { "master", "Auto Farm", "Main switch for farming." },
+        { "play", "Auto Play", "Start matches and continue to the next run." },
+        { "battle", "Battle AI", "Enable placement, upgrades and abilities." },
+        { "place", "Auto Place", "Place units automatically." },
+        { "upgrade", "Auto Upgrade", "Buy upgrades automatically." },
+        { "actives", "Auto Abilities", "Cast damage and buff abilities." },
+        { "autoBuff", "Auto Buff", "Rotate buffs for the team." },
+        { "autoRejoin", "Auto Rejoin", "Reconnect after a lost connection." },
+    }) do
+        local key = spec[1]
+        local handle = tab:Toggle(spec[2], spec[3], Farming.baseValue(key), function(on)
+            helper(key, on)
+        end)
+        GUI.homeSwitches[key], ui[key] = handle, handle
+    end
+    tab:Section("Interface")
+    ui.showAdvancedSettings = tab:Toggle("Show advanced settings", "Show all tabs for detailed settings and routines.", Config.showAdvancedSettings ~= false, function(on)
+        helper("showAdvancedSettings", on)
+        GUI.applyAdvancedSettings()
     end)
-    GUI.start = GUI.startCard(startGroup, {
-        everything = function()
-            -- The switches a run needs. Auto-equip is left alone: it changes your team, so it stays your choice.
-            local turned = {}
-            for _, key in ipairs({ "master", "play", "battle", "place", "upgrade", "actives", "sim", "simTeams" }) do
-                if not Config[key] then
-                    Config[key] = true
-                    table.insert(turned, key)
-                end
-                if ui[key] then pcall(ui[key].Set, true, true) end
-            end
-            local held = Brain.holdLobby ~= nil
-            Brain.holdLobby = nil
-            App.saveNow()
-            pcall(function() window:Status("▶ Farming") end)
-            App.log(1, "MODE", "Turn everything on: " .. (#turned > 0 and table.concat(turned, ", ") or "all were on already") .. (held and " · lobby hold cleared" or ""))
-            helper6("Start", #turned > 0 and (#turned .. " switch" .. (#turned == 1 and "" or "es") .. " turned on" .. (held and ", lobby hold cleared" or "")) or (held and "lobby hold cleared: farming again" or "everything was already on"), "success")
-        end,
-        modes = function() GUI.go("Farming", "Stages") end,
-        battle = function() GUI.go("Battle", "Controls") end,
-        planner = function() GUI.go("Battle", "Planner") end,
-    })
     tab:Section("Right now")
+    live.homeStatus = tab:Paragraph("Starting…")
     GUI.nowCard = tab:StatusCard({
         icon = "⏳",
         title = "Starting…",
@@ -52630,6 +54069,13 @@ function GUI.build()
             ui.huntCardsPick = tab:Dropdown("Card Pick", "Which of the 3 cards to take each time. None that risks losing the run", Hunt.CARD_PICKS, table.find(Hunt.CARD_PICKS, Config.huntCards) or 1, function(arg1)
                 helper("huntCards", arg1)
             end)
+            ui.huntCardsFirst = tab:Input("Take First", "Card titles, comma separated, highest priority first (Attack takes every Attack tier, Attack II only that one). Safe cards only", "Title A, Title B", Config.huntCardsFirst or "", function(text)
+                helper("huntCardsFirst", tostring(text or ""))
+            end)
+            ui.huntCardsNever = tab:Input("Never Take", "Card titles, comma separated. Wins over Take First and over safety; only if every offered card is banned does Card Pick choose among them", "Title C, Title D", Config.huntCardsNever or "", function(text)
+                helper("huntCardsNever", tostring(text or ""))
+            end)
+            tab:Paragraph("Use exact titles from hunt_cards.txt (case does not matter). Optional: id:VALUE or type:VALUE.")
             helper2(tab, "Smart Charm Equip", "Wears the Summer Charm that helps most before a Summer Hunt or a Sky portal: more rewards where your team wins with room to spare, more damage where it might lose", "smartCharm")
             tab:Section("Summer Skins and Stars")
             live.skins = tab:Paragraph("…")
@@ -52716,16 +54162,16 @@ function GUI.build()
     do
         local tab = window:Tab("🚀", "Quick Start")
         helper7(tab, "Pick a mode and a map, set the runs, press Start Farming. Your own Auto Farm settings (Stages, Challenges, Events, Party, Rules) stay as they are and come back when it ends.")
-        local summary
+        local summary, form
         local function saved(task)
-            Config.qsTask = Farming.copy(task)
-            App.saveSoon()
+            GUI.saveQuickTask(task, form)
             if summary then
                 local why = Farming.check(task)
                 summary.Set(why and ("Missing: " .. why) or ("Ready: " .. Farming.label(task)))
             end
         end
-        local form = GUI.farmForm(tab, saved)
+        form = GUI.farmForm(tab, saved)
+        table.insert(GUI.quickForms, form)
         form.buildMain()
         summary = tab:Label("…")
         tab:Button("▶️", "Start Farming", "Applies the settings above and starts farming in one click. Only one farm runs at a time", function()
@@ -53329,6 +54775,9 @@ function GUI.build()
     }, 90)
     helper2(tab, "Auto Start", "Votes to start once the first unit is down", "autoStart")
     helper2(tab, "Smart Targeting", "Crowd control holds the front, heavy hitters take the boss", "smartTarget")
+    helper2(tab, "Use Game Auto", "Once a buff rotation is steady, the game's own Auto casts it and the farm takes over if the buff drops. Press Auto on any unit's ability once so the farm learns the command", "gameAuto")
+    helper2(tab, "Farms Away From Road", "Farms stand far from every road, up to 60 studs out, and keep the good spots free for damage", "farmFar")
+    helper2(tab, "With Other Players: Hold The Start", "With another player in the match, your attackers stand nearer the start of the road and leave the end to them", "partyFront")
     tab:Section("Your team at full upgrade")
     GUI.team = tab:KeyValue({
         "1",
@@ -53410,6 +54859,11 @@ function GUI.build()
         sub = ""
     })
     helper2(tab, "Farm Units", "Buys farm units while they pay back and the defense holds", "farmUnits")
+    ui.upgradeOrder = tab:Dropdown("Buy Order", "Smart: the most damage per yen, as before. Farms first: farms, then every unit down, then Fused Hero. Team first: every unit down, then farms, then Fused Hero. Only while the defense holds", Economy.ORDERS, table.find(Economy.ORDERS, Config.upgradeOrder) or 1, function(arg1)
+        helper("upgradeOrder", arg1)
+        Modes.lastScored = nil
+    end)
+    helper2(tab, "Spend Idle Yen", "After 40 s of saving with yen in hand, buys a useful upgrade that costs at most a third of it", "idleSpend")
     helper3(tab, "Farm Waves To Spare", "A farm buy must pay back with this many waves left over", "farmSpare", {
         min = 0,
         max = 6,
@@ -53646,6 +55100,23 @@ function GUI.build()
             GUI.gfxApply()
         end)
         tab:Section("Lighting, 3D and FPS")
+        ui.gfxLow = tab:Toggle("Low Graphics Preset", "Reversible: hide textures and effects, simple lighting, 30 FPS unless capped, slower script panels. Turn off to restore your settings", Config.gfxLow, function(enabled)
+            helper("gfxLow", enabled)
+            GUI.lowCpuAt = nil
+            GUI.gfxApply(true)
+        end)
+        ui.gfxBatchFx = tab:Toggle("Batch And Hide Effects", "Hide particles, trails, beams and explosion visuals, including new effects in small batches. Turn off to restore", Config.gfxBatchFx, function(enabled)
+            helper("gfxBatchFx", enabled)
+            GUI.gfxApply(true)
+        end)
+        ui.gfxUnfocused = tab:Toggle("Pause 3D Outside Focus", "After the window loses focus, pause 3D. Restore on focus unless Turn Off 3D is enabled", Config.gfxUnfocused, function(enabled)
+            helper("gfxUnfocused", enabled)
+            GUI.gfxApply(true)
+        end)
+        ui.gfxLowCpu = tab:Toggle("Low CPU Panels", "Refresh this script's panels every 3 seconds. Farming and game UI keep their normal timing", Config.gfxLowCpu, function(enabled)
+            helper("gfxLowCpu", enabled)
+            GUI.lowCpuAt = nil
+        end)
         ui.gfxLighting = tab:Toggle("Simple Lighting", "No shadows, bloom, blur, fog or water waves, lowest render quality. Turn off to restore", Config.gfxLighting, function(enabled)
             helper("gfxLighting", enabled)
             GUI.gfxApply()
@@ -53654,7 +55125,7 @@ function GUI.build()
             helper("gfx3dOff", enabled)
             GUI.gfxApply()
         end)
-        ui.gfxFps = tab:Dropdown("FPS Cap", "Fewer frames, less CPU and GPU. Needs setfpscap in your executor; Off puts back the usual 60", {
+        ui.gfxFps = tab:Dropdown("FPS Cap", "Fewer frames, less CPU and GPU. Needs setfpscap; Off restores the previous cap (60 if unreadable)", {
             "Off",
             "60",
             "30",
@@ -53685,6 +55156,8 @@ function GUI.build()
     -- Every element exists before profiles are applied. Existing farm autosaves
     -- supply defaults; an explicitly selected Airflow autoload profile wins.
     GUI.NativeWindow:LoadAutoload()
+    GUI.farmSync()
+    GUI.applyAdvancedSettings()
     window:Status(Config.master and "▶ Farming" or "⏸ Paused")
     if Config.seenVersion ~= VERSION then
         local flag = Config.seenVersion == nil
@@ -53857,7 +55330,245 @@ function GUI.simView(arg1)
     }
 end
 
+-- ===== Quality of life (2.25, written by Hydrogen, reviewed by Opus): match ETA and rates =====
+local function qolFinite(x: any): boolean
+	return type(x) == "number" and x == x and x ~= math.huge and x ~= -math.huge
+end
+
+local function qolQuantile(sorted: { number }, q: number): number
+	local n = #sorted
+	if n == 1 then
+		return sorted[1]
+	end
+	local idx = 1 + (n - 1) * q
+	local loIdx = math.floor(idx)
+	local hiIdx = math.ceil(idx)
+	local frac = idx - loIdx
+	return sorted[loIdx] * (1 - frac) + sorted[hiIdx] * frac
+end
+
+local function qolCommas(n: number): string
+	local s = string.format("%.0f", math.floor(n + 0.5))
+	while true do
+		local updated, count = string.gsub(s, "^(-?%d+)(%d%d%d)", "%1,%2")
+		s = updated
+		if count == 0 then
+			break
+		end
+	end
+	return s
+end
+
+-- Длительность в коротком виде: 75 -> '1m 15s', 3725 -> '1h 02m', 42 -> '42s', nil/отрицательное -> '?'
+function Utils.qol_fmtDur(sec: number?): string
+	if not qolFinite(sec) or (sec :: number) < 0 then
+		return "?"
+	end
+	local s = math.floor((sec :: number) + 0.5)
+	if s >= 3600 then
+		local h = math.floor(s / 3600)
+		local m = math.floor((s % 3600) / 60)
+		return string.format("%dh %02dm", h, m)
+	elseif s >= 60 then
+		local m = math.floor(s / 60)
+		local rem = s % 60
+		return string.format("%dm %02ds", m, rem)
+	else
+		return string.format("%ds", s)
+	end
+end
+
+-- Оценка времени до конца матча.
+function Utils.qol_eta(p: any): any
+	local params: any = if type(p) == "table" then p else {}
+
+	local wave = if qolFinite(params.wave) and (params.wave :: number) >= 0
+		then math.floor(params.wave :: number)
+		else 0
+
+	local validStarts: { number } = {}
+	if type(params.waveStarts) == "table" then
+		for _, t in ipairs(params.waveStarts :: { number }) do
+			if qolFinite(t) then
+				table.insert(validStarts, t)
+			end
+		end
+	end
+
+	local allIntervals: { number } = {}
+	for i = 1, #validStarts - 1 do
+		local dt = validStarts[i + 1] - validStarts[i]
+		if qolFinite(dt) and dt > 0 then
+			table.insert(allIntervals, dt)
+		end
+	end
+
+	-- Берём последние до 8 полных интервалов
+	local intervals: { number } = {}
+	local startIdx = math.max(1, #allIntervals - 7)
+	for i = startIdx, #allIntervals do
+		table.insert(intervals, allIntervals[i])
+	end
+
+	local n = #intervals
+	local hasPrior = qolFinite(params.prior) and (params.prior :: number) > 0
+	local priorVal = if hasPrior then (params.prior :: number) else 0
+
+	local waveDur: number? = nil
+	local waveLo: number = 0
+	local waveHi: number = 0
+	local basis: "measured" | "sim" | "none" = "none"
+
+	local sorted = table.clone(intervals)
+	table.sort(sorted)
+
+	if n >= 2 then
+		waveDur = qolQuantile(sorted, 0.5)
+		basis = "measured"
+	elseif n == 1 then
+		local med = sorted[1]
+		if hasPrior then
+			local w = n / 2 -- 0.5
+			waveDur = med * w + priorVal * (1 - w)
+			basis = "measured"
+		else
+			waveDur = med
+			basis = "measured"
+		end
+	elseif hasPrior then
+		waveDur = priorVal
+		basis = "sim"
+	end
+
+	if waveDur == nil or not qolFinite(waveDur) then
+		local isInf = params.total == nil
+			or params.total == 0
+			or not qolFinite(params.total)
+			or (params.total :: number) < 0
+		local goal: number? = if isInf then params.target else params.total
+		local leftVal: number? = if qolFinite(goal) and (goal :: number) > 0
+			then math.max(0, math.floor(goal :: number) - wave)
+			else nil
+		return {
+			sec = nil,
+			lo = nil,
+			hi = nil,
+			left = leftVal,
+			basis = "none",
+			text = "?",
+		}
+	end
+
+	local dur = math.max(0, waveDur)
+	if n >= 4 then
+		waveLo = math.max(0, qolQuantile(sorted, 0.25))
+		waveHi = math.max(0, qolQuantile(sorted, 0.75))
+	else
+		waveLo = dur * 0.8
+		waveHi = dur * 1.2
+	end
+
+	local isInfinite = params.total == nil
+		or params.total == 0
+		or not qolFinite(params.total)
+		or (params.total :: number) < 0
+
+	local hasTarget = qolFinite(params.target) and (params.target :: number) > 0
+
+	if isInfinite and not hasTarget then
+		return {
+			sec = nil,
+			lo = nil,
+			hi = nil,
+			left = nil,
+			basis = basis,
+			text = "Infinite · ~" .. Utils.qol_fmtDur(dur) .. "/wave",
+		}
+	end
+
+	local goal = math.floor(if isInfinite then (params.target :: number) else (params.total :: number))
+	local left = math.max(0, goal - wave)
+
+	local elapsed = 0
+	if #validStarts > 0 and qolFinite(params.now) then
+		elapsed = math.max(0, (params.now :: number) - validStarts[#validStarts])
+	end
+
+	local sec = if left > 0 then math.max(0, left * dur - elapsed) else 0
+	local lo = if left > 0 then math.max(0, left * waveLo - elapsed) else 0
+	local hi = if left > 0 then math.max(0, left * waveHi - elapsed) else 0
+
+	local unit = if left == 1 then "wave" else "waves"
+	local text = string.format(
+		"%d %s left · ~%s (%s–%s)",
+		left,
+		unit,
+		Utils.qol_fmtDur(sec),
+		Utils.qol_fmtDur(lo),
+		Utils.qol_fmtDur(hi)
+	)
+
+	return {
+		sec = sec,
+		lo = lo,
+		hi = hi,
+		left = left,
+		basis = basis,
+		text = text,
+	}
+end
+
+-- Скорость дохода: perHour(amount, sinceSec) -> строка '≈1,234/h', при sinceSec < 60 -> '…'
+function Utils.qol_perHour(amount: number?, sinceSec: number?): string
+	if not qolFinite(sinceSec) or (sinceSec :: number) < 60 then
+		return "…"
+	end
+	if not qolFinite(amount) then
+		return "…"
+	end
+	local safeAmount = math.max(0, amount :: number)
+	local rate = math.floor((safeAmount / (sinceSec :: number)) * 3600 + 0.5)
+	return "≈" .. qolCommas(rate) .. "/h"
+end
+
+-- Match ETA for the match card (2.25): "12 waves left · ~6m 10s (5m 40s–6m 50s) · " or "".
+function Match.etaText()
+    local wave = Match.wave()
+    local total = tonumber(Match.total) or 0
+    -- The wave on screen is still running: count it as left (minus the time it has run).
+    local ok, res = pcall(Utils.qol_eta, {
+        wave = math.max(0, wave - 1),
+        total = (Match.infinite or total <= 0) and 0 or total,
+        waveStarts = Match.waveStarts,
+        prior = Match.info and tonumber(Match.info.waveSec) or nil,
+        now = Utils.now()
+    })
+    if ok and type(res) == "table" and res.text and res.text ~= "?" then
+        return res.text .. " · "
+    end
+    return ""
+end
+
 function GUI.update()
+    local now = Utils.now()
+    if (Config.gfxLowCpu or Config.gfxLow) and GUI.lowCpuAt and now - GUI.lowCpuAt < 3 then return end
+    GUI.lowCpuAt = now
+    GUI.syncHomeSwitches()
+    GUI.applyAdvancedSettings()
+    if GUI.LIVE.homeStatus then
+        local text
+        if not Config.master then
+            text = "Paused: Auto Farm is off"
+        elseif Brain.holdLobby then
+            text = App.where == "match" and "Finishing this match, then stopping"
+                or ("Stopped: " .. tostring(Brain.holdLobby.why or "waiting in the lobby"))
+        elseif App.where == "match" then
+            text = Status.Economy or Status.Match or "Playing the current match"
+        else
+            text = Status.Mode or "Planning the next run"
+        end
+        GUI.LIVE.homeStatus.Set(GUI.shortLine(text, 120))
+    end
     local col = GUI.COL or {
     }
     local prof = Core.prof() or {
@@ -53887,7 +55598,7 @@ function GUI.update()
                 icon = GUI.ICONS [Match.kind or ""] or "⚔️",
                 title = text,
                 text = tostring(Status.Economy or str),
-                sub = string.format("Wave %d/%d · ¥%s · %d enemies · front at %d%% of the road, your units reach %d%% · kills all in %s",
+                sub = Match.etaText() .. string.format("Wave %d/%d · ¥%s · %d enemies · front at %d%% of the road, your units reach %d%% · kills all in %s",
                 Match.wave(),
                 Match.total or 0,
                 Utils.fmt(Match.money()),
@@ -53975,7 +55686,12 @@ function GUI.update()
         end
         pcall(goals.Set, "First Clears Left", tostring(count), "acts you can clear for 60 gems now", count > 0 and col.purple or col.green, nil)
         pcall(goals.Set, "Summer Pearls", Utils.fmt(prof.resources and prof.resources.SummerPearls or 0), "a Sunny Star costs 150", nil, nil)
-        pcall(goals.Set, "Record", string.format("%d W · %d L", Brain.totals.wins or 0, Brain.totals.losses or 0), string.format("+%s gems by the farm", Utils.fmt(Brain.totals.gems or 0)), nil, nil)
+        GUI.sessionGems = GUI.sessionGems or {
+            at = Utils.now(),
+            gems = tonumber(prof.gem_amount) or 0
+        }
+        local sessionRate = Utils.qol_perHour((tonumber(prof.gem_amount) or 0) - GUI.sessionGems.gems, Utils.now() - GUI.sessionGems.at)
+        pcall(goals.Set, "Record", string.format("%d W · %d L", Brain.totals.wins or 0, Brain.totals.losses or 0), string.format("+%s gems by the farm · this session %s gems", Utils.fmt(Brain.totals.gems or 0), sessionRate), nil, nil)
     end
     if GUI.systems then
         for _, system in ipairs(GUI.SYSTEMS) do
