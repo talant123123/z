@@ -10,7 +10,7 @@ local AIRFLOW_SOURCE = [====[
 -- Teleports use this edition's local cache instead of fetching the old UI script.
 -- Statically checked; not run inside Roblox.
 
-local VERSION = "2.28"
+local VERSION = "2.34"
 if _G.AA_SF and _G.AA_SF.alive then
     if _G.AA_SF.version == VERSION then
         warn("[awaqwaa] v" .. VERSION .. " is already running")
@@ -1766,6 +1766,120 @@ table.insert(CHANGELOG, 1, {
         }
     }
 })
+table.insert(CHANGELOG, 1, {
+    v = "2.29",
+    date = "Nov 19, 2026",
+    title = "Dungeon farms, safer paths, units move up",
+    items = {
+        {
+            "🌾",
+            "Farms in the dungeon",
+            "Summoners like Elyssia and units whose attack reaches flyers from some level now count as hitting the air in a match. Before, the farm thought nobody could kill the flyers coming, held every yen for damage, and placed farms late or never and didn't level them. Also, once flyers have been on the field for 30 s and none got past half the road, that forecast no longer holds farms back.",
+            "FIX"
+        },
+        {
+            "🗺️",
+            "Safer dungeon paths",
+            "A curse the simulator can't play now lowers the win chance of the rooms after it. A path with a new curse is taken only if it costs at most 5% win chance against the safest path without one (2% once curses would outnumber your buffs). An easier path within 150 gems of the best one is preferred.",
+            "IMPROVED"
+        },
+        {
+            "🔁",
+            "Units move up at the end",
+            "On the last wave, once no more enemies come, a unit every enemy left has walked past is sold and its yen goes to a spot ahead of them (Battle → Controls → Move Units At The End).",
+            "NEW"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
+    v = "2.30",
+    date = "Nov 20, 2026",
+    title = "Back to the lobby even when a teleport fails",
+    items = {
+        {
+            "🚪",
+            "No more sitting in a finished match",
+            "After a match the farm asked the game for the lobby only once. If that teleport failed, it stayed in the finished match until you came back. Now it watches the request: asks again every 20 s (sooner when the game reports a failed teleport), and after 6 tries teleports straight to the lobby the way Auto Rejoin does. Found by running the script for hours in a test sandbox with failing teleports.",
+            "FIX"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
+    v = "2.31",
+    date = "Nov 20, 2026",
+    title = "No more waiting forever on a lobby pad",
+    items = {
+        {
+            "🪑",
+            "A join without an answer is cleaned up",
+            "When the game didn't answer a pad join in time but seated you anyway, the farm saw 'already in a lobby' and started no matches for hours. Now, after a join without an answer, it leaves that pad and checks again after 10, 35 and 80 s in case a late answer seated it. Only the pad the farm tried itself: a lobby you join by hand is never touched. Found by the test sandbox with slow server answers.",
+            "FIX"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
+    v = "2.32",
+    date = "Nov 20, 2026",
+    title = "No selling your defense to a boss that dies anyway",
+    items = {
+        {
+            "🛡️",
+            "Units behind the boss stay when the boss can't win",
+            "In a boss fight the farm sold every unit the boss had walked past, every 2 s, even when the boss was going to die before the base. In long runs it then bought the same units back on the same spots a minute later and lost the upgrades. Now those units are sold only when the boss would really reach the base; otherwise they stay for the ordinary enemies that follow. Found by the test sandbox.",
+            "FIX"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
+    v = "2.33",
+    date = "Nov 20, 2026",
+    title = "Steadier team swaps, no buying after the end, no boss sell loop",
+    items = {
+        {
+            "🔁",
+            "Team swap waits for a free slot",
+            "When taking a unit out got no answer and all 6 slots were still taken, the farm kept asking the game to put the new unit in, and the game kept refusing. Now it skips that and asks for the unit to go out again on the next round.",
+            "FIX"
+        },
+        {
+            "🏁",
+            "Nothing is bought after the match ends",
+            "If the match ended while a request was waiting for the game's answer, the farm could still try an upgrade right after. Now it checks the end of the match right before buying or upgrading.",
+            "FIX"
+        },
+        {
+            "👑",
+            "No sell-and-buy-back loop in a boss fight",
+            "A unit sold because the boss had walked past it could be placed again on the very same spot a second later and sold again. Now that spot stays closed until the boss fight is over. Found by the test sandbox.",
+            "FIX"
+        }
+    }
+})
+table.insert(CHANGELOG, 1, {
+    v = "2.34",
+    date = "Nov 20, 2026",
+    title = "Boss fights and dungeon chests",
+    items = {
+        {
+            "👑",
+            "New units go ahead of the boss",
+            "After selling units the boss had walked past, the farm could put a new one on a spot right next to the old one, still behind the boss, and sell it again. Now, while that boss is on the field, a fighter is placed only where it reaches the road ahead of the boss.",
+            "FIX"
+        },
+        {
+            "🎁",
+            "One lost answer no longer pauses the dungeon for 30 min",
+            "If the game didn't answer one chest opening, the farm's own short request pause made the next tries look failed too, and the dungeon waited 30 minutes with the chests unopened. Now that pause is waited out, a real failure gets a few seconds before the next try, and if chests still don't open the farm comes back in 5 minutes.",
+            "FIX"
+        },
+        {
+            "🧠",
+            "Replays no longer pile up in memory",
+            "Each in-place replay starts the script again. Every new copy wrapped the game's server calls on top of the previous copy's wrapper, so all old copies stayed in memory and every call passed through all of them. After dozens of replays that was hundreds of MB and slower calls. Now each copy wraps the game's own functions, and old copies are released. Found by the test sandbox's memory check.",
+            "FIX"
+        }
+    }
+})
 local App = {
     alive = true,
     conns = {
@@ -1926,6 +2040,7 @@ Core.DEFAULTS = {
     idleSpend = true,
     autoStart = true,
     farmUnits = true,
+    endMove = true,
     farmSpare = 2,
     safeReach = 0.45,
     clearSec = 20,
@@ -28511,6 +28626,11 @@ function FarmHub.launch(mode)
     local now = Utils.now()
     local ok, res = App.request("join", "request_join_lobby", pad.Name)
     if not (ok and res) then
+        local sent = res ~= "waiting" and res ~= "slowing down" and not tostring(res):find("^no remote")
+        if not ok and sent then
+            -- the join was sent but got no answer / a connection error: it may still go through on the server (2.31)
+            FarmHub.leaveIfSeated(pad.Name, tostring(res))
+        end
         task.wait(0.5)
         local gameSaid = App.gameSaid(now)
         App.log(1, "MODE", "join refused on " .. pad.Name .. " (" .. tostring(gameSaid or res) .. ")" .. (gameSaid and (": " .. mode.label .. " rests for half an hour") or ""))
@@ -28550,6 +28670,48 @@ function FarmHub.launch(mode)
         App.backoff("launch", 10)
     end
     return false
+end
+
+-- ===== A join without an answer must not leave us on the pad (2.31) =====
+-- A join whose answer never came (timeout) may still have gone through: the game then shows AlreadyInLobby and the farm,
+-- waiting for it to clear, started nothing for hours. Leave that pad now and check again a few times, because a late
+-- answer can seat us after the first leave. Only the pad this farm tried itself, never one you joined by hand.
+function FarmHub.ownsPad(padName)
+    for _, name in ipairs({"_LOBBIES", "_CHALLENGES", "_EVENT_CHALLENGES"}) do
+        local root = workspace:FindFirstChild(name)
+        if root then
+            for _, pad in ipairs(root:GetDescendants()) do
+                if pad.Name == padName then
+                    local owner = pad:FindFirstChild("Owner")
+                    if owner and owner.Value == LocalPlayer then
+                        return true
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
+function FarmHub.leaveIfSeated(padName, why)
+    App.log(1, "MODE", string.format("no answer to joining %s (%s): leaving it in case the game seated us anyway", padName, tostring(why)))
+    App.request("leave", "request_leave_lobby", padName)
+    local app = App
+    task.spawn(function()
+        for _, pause in ipairs({10, 25, 45}) do
+            task.wait(pause)
+            if not app.alive or _G.AA_SF ~= app or Brain.pending then
+                return
+            end
+            local flag = LocalPlayer:FindFirstChild("AlreadyInLobby")
+            if (flag and flag.Value) or FarmHub.ownsPad(padName) then
+                App.log(1, "MODE", string.format("still seated on %s after the join without an answer: leaving again", padName))
+                App.request("leave", "request_leave_lobby", padName)
+            else
+                return
+            end
+        end
+    end)
 end
 
 function FarmHub.matchOn(mode)
@@ -28984,7 +29146,11 @@ function FarmHub.equipTeam(uuids, label)
                     end
                 end
                 local ok, value2
-                if value then
+                if # Units.equipped() >= 6 then
+                    -- 2.33: all 6 slots are still taken (the unit going out didn't leave — its unequip got no answer):
+                    -- the game would refuse; the next round asks for the unequip again instead
+                    ok, value2 = false, "skipped: all 6 slots still taken"
+                elseif value then
                     ok, value2 = App.request("eq", "equip_unit", uuid, value)
                 else
                     ok, value2 = App.request("eq", "equip_unit", uuid)
@@ -37346,12 +37512,130 @@ end
 
 -- Clearing a room refills tries. Only the first room uses the current game count.
 -- As in 2.11, charge lost tries in every room through room 20 without weighting by reach.
+-- 2.29: a curse the simulator can't play still makes the rooms after it harder: its win chance is cut by this share.
+Dungeon.BLIND_P = {
+    _curse_money = 0.97,
+    _curse_shop = 0.98,
+    _curse_explode = 0.9,
+    _curse_random = 0.9,
+    _curse_super_explode = 0.85,
+    _curse_super_chaos = 0.85,
+    _curse_super_burst = 0.88,
+    _curse_super_armored = 0.88
+}
+Dungeon.BLIND_P_DEFAULT = 0.94
+-- A path that adds curses may cost this much win chance against the best path without one (CURSE_SOFT once curses
+-- would outnumber buffs). An easier path within EASE_GEMS of the best is taken when it is EASE_P easier.
+Dungeon.CURSE_CRIT, Dungeon.CURSE_SOFT = 0.05, 0.02
+Dungeon.EASE_GEMS, Dungeon.EASE_P = 150, 0.03
+
+function Dungeon.blindP(curses, arg1)
+    local mult = 1
+    for _, curse in ipairs(curses or {}) do
+        local ok, blind = pcall(Dungeon.blindCurse, arg1, curse)
+        if curse == "?" or (ok and blind) then
+            mult = mult * (Dungeon.BLIND_P [curse] or Dungeon.BLIND_P_DEFAULT)
+        end
+    end
+    return mult
+end
+
+-- Buffs held in this run: items that help (not curses, not the mock chest).
+function Dungeon.buffsHeld(arg1)
+    local count = 0
+    for id, n in pairs(Dungeon.items(arg1)) do
+        local ok, value = pcall(Dungeon.itemValue, id, arg1)
+        if not Dungeon.isCurse(id) and id ~= "chest_mock_item" and ok and (tonumber(value) or 0) > 0 then
+            count = count + n
+        end
+    end
+    return count
+end
+
+-- The hardest visible room of a scored path.
+function Dungeon.ease(entry)
+    local p = 1
+    for _, row in ipairs(entry.rows or {}) do
+        p = math.min(p, tonumber(row.p) or 0)
+    end
+    return p
+end
+
+-- Pick among scored paths (highest ev first). blocked(entry) says whether its first room is barred already.
+-- held/buffs: curses and buffs of the run now. Returns best, alt, eased (the richer path given up for an easier one).
+function Dungeon.safePick(scored, held, buffs, blocked)
+    blocked = blocked or function(entry)
+        return entry.path and entry.path [1] and entry.path [1].blocked
+    end
+    -- the reference: the safest path without a curse (its hardest room and its reach to room 20)
+    local clean
+    for _, entry in ipairs(scored) do
+        entry.cursed = nil
+        if # (entry.curses or {}) == 0 and not blocked(entry) then
+            clean = clean or { ease = 0, reach = 0 }
+            clean.ease = math.max(clean.ease, Dungeon.ease(entry))
+            clean.reach = math.max(clean.reach, entry.reach or 0)
+        end
+    end
+    for _, entry in ipairs(scored) do
+        if # (entry.curses or {}) > 0 and not blocked(entry) then
+            local over = (held or 0) + # entry.curses > (buffs or 0) + (entry.buffs or 0)
+            local limit = over and Dungeon.CURSE_SOFT or Dungeon.CURSE_CRIT
+            if clean then
+                local drop = math.max(clean.ease - Dungeon.ease(entry), clean.reach - (entry.reach or 0))
+                if drop > limit + 1e-9 then
+                    entry.cursed = string.format("its curse costs %d%% win chance (allowed %d%%%s)", math.floor(drop * 100 + 0.5), math.floor(limit * 100 + 0.5), over and ", curses would outnumber buffs" or "")
+                end
+            end
+        end
+    end
+    local best
+    for _, entry in ipairs(scored) do
+        if not blocked(entry) and not entry.cursed then
+            best = entry
+            break
+        end
+    end
+    if not best then
+        for _, entry in ipairs(scored) do
+            if not blocked(entry) then
+                best = entry
+                break
+            end
+        end
+    end
+    best = best or scored [1]
+    local eased
+    if best then
+        local top = best
+        for _, entry in ipairs(scored) do
+            if entry ~= top and not blocked(entry) and not entry.cursed and (top.ev or 0) - (entry.ev or 0) <= Dungeon.EASE_GEMS
+                and Dungeon.ease(entry) >= Dungeon.ease(top) + Dungeon.EASE_P and (entry.reach or 0) >= (top.reach or 0) - 0.005 then
+                -- the first such path is the richest of the easier ones
+                eased, best = top, entry
+                break
+            end
+        end
+    end
+    local alt
+    for _, entry in ipairs(scored) do
+        if best and entry.path and best.path and entry.path [1] ~= best.path [1] and not blocked(entry) and not entry.cursed then
+            alt = entry
+            break
+        end
+    end
+    return best, alt, eased
+end
+
 function Dungeon.scorePath(arg1, path, ctx)
     local survive, other, tries = 1, 0, 0
     local chests, rare, coins = ctx.chests, ctx.rare, ctx.coins
-    local curses, rows = {}, {}
+    local curses, rows, buffs = {}, {}, 0
     for j, room in ipairs(path) do
         local p, sim = Dungeon.winP(room, #curses > 0 and table.clone(curses) or nil)
+        if #curses > 0 then
+            p = p * Dungeon.blindP(curses, arg1)
+        end
         local n = j == 1 and math.max(1, ctx.lives) or Dungeon.TRIES
         local clear = 1 - (1 - p) ^ n
         tries = tries + ((p > 0 and clear / p or n) - 1)
@@ -37359,7 +37643,13 @@ function Dungeon.scorePath(arg1, path, ctx)
         local parts = Dungeon.roomParts(room, coins)
         coins = coins + parts.coins
         -- A shop is a utility estimate, not a free chest or a promise to buy. Reserve its budget once.
-        if room.tags[Dungeon.T.SHOP] and coins >= 300 then coins = coins - 300 end
+        if room.tags[Dungeon.T.SHOP] and coins >= 300 then
+            coins = coins - 300
+            buffs = buffs + 1
+        end
+        if room.tags[Dungeon.T.SHRINE] then
+            buffs = buffs + 1
+        end
         chests, rare = chests + parts.chest, rare + parts.rare
         local points, blind = parts.points, nil
         if parts.curse then
@@ -37378,6 +37668,7 @@ function Dungeon.scorePath(arg1, path, ctx)
         if okA and okB and withCurses and without and (tonumber(without.p) or 0) > 0 then
             mult = Utils.clamp((tonumber(withCurses.p) or 0) / without.p, 0, 1)
         end
+        mult = mult * Dungeon.blindP(curses, arg1)
     end
     local later = 0
     for depth = last.d + 1, Dungeon.ROOMS do
@@ -37394,7 +37685,7 @@ function Dungeon.scorePath(arg1, path, ctx)
     local tryCost = tries * ctx.tryCost
     return { path = path, rows = rows, ev = chestValue + other - tryCost,
         chestValue = chestValue, other = other, tryCost = tryCost, tries = tries,
-        reach = survive, chests = chests, rare = rare, curses = curses, mult = mult, later = later }
+        reach = survive, chests = chests, rare = rare, curses = curses, mult = mult, later = later, buffs = buffs }
 end
 
 function Dungeon.pathName(scored)
@@ -37412,7 +37703,13 @@ function Dungeon.planWhy(plan)
     local top = plan.scored [1]
     if top and top ~= best and top.path [1].blocked then
         skipped = string.format(" · %s scored higher (%d gems) but is skipped: %s", Dungeon.pathName(top), math.floor(top.ev + 0.5), top.path [1].blocked)
+    elseif top and top ~= best and top.cursed then
+        skipped = string.format(" · %s scored higher (%d gems) but is skipped: %s", Dungeon.pathName(top), math.floor(top.ev + 0.5), top.cursed)
     end
+    if plan.eased then
+        skipped = skipped .. string.format(" · easier than %s (%d gems less, its hardest room %d%% vs %d%%)", Dungeon.pathName(plan.eased), math.floor(plan.eased.ev - best.ev + 0.5), Dungeon.pct(Dungeon.ease(best)), Dungeon.pct(Dungeon.ease(plan.eased)))
+    end
+    skipped = skipped .. string.format(" · run: %d buff%s, %d curse%s", plan.heldBuffs or 0, (plan.heldBuffs or 0) == 1 and "" or "s", plan.heldCurses or 0, (plan.heldCurses or 0) == 1 and "" or "s")
     if not alt then
         return (#plan.top == 1 and "the only room on offer" or "no other room passes the curse safety check") .. skipped
     end
@@ -37441,7 +37738,8 @@ function Dungeon.planWhy(plan)
     if math.abs(best.reach - alt.reach) >= 0.01 then
         reach = string.format(" · reaches room 20 %d%% vs %d%%", Dungeon.pct(best.reach), Dungeon.pct(alt.reach))
     end
-    return string.format("%d gems ahead of the best path through another room, %s (%s)%s%s", math.floor(best.ev - alt.ev + 0.5), Dungeon.pathName(alt), # list > 0 and table.concat(list, ", ") or "same parts", reach, skipped)
+    local lead = best.ev - alt.ev
+    return string.format("%d gems %s the best path through another room, %s (%s)%s%s", math.floor(math.abs(lead) + 0.5), lead >= 0 and "ahead of" or "behind", Dungeon.pathName(alt), # list > 0 and table.concat(list, ", ") or "same parts", reach, skipped)
 end
 
 function Dungeon.plan(arg1)
@@ -37502,24 +37800,14 @@ function Dungeon.plan(arg1)
             room.blocked = why
         end
     end
-    local best
-    for _, entry in ipairs(scored) do
-        if not entry.path [1].blocked then
-            best = entry
-            break
-        end
-    end
-    best = best or scored [1]
-    local alt
-    for _, entry in ipairs(scored) do
-        if best and entry.path [1] ~= best.path [1] and not entry.path [1].blocked then
-            alt = entry
-            break
-        end
-    end
+    local held, buffs = Dungeon.curses(arg1), Dungeon.buffsHeld(arg1)
+    local best, alt, eased = Dungeon.safePick(scored, held, buffs)
     local plan = {
         best = best,
         alt = alt,
+        eased = eased,
+        heldCurses = held,
+        heldBuffs = buffs,
         scored = scored,
         top = top,
         layers = layers,
@@ -38029,7 +38317,7 @@ function Dungeon.openChests(arg1, arg2)
     local count, count2, count3 = 0, 0, 0
     local cur = tonumber(Core.cur("gems")) or 0
     local wallet = Dungeon.wallet()
-    for i = 1, res2 + res3 + 4 do
+    for i = 1, res2 + res3 + 12 do
         local _, res2, res3 = Dungeon.res(Dungeon.data())
         if res2 + res3 <= 0 or count3 >= 2 then
             break
@@ -38039,6 +38327,11 @@ function Dungeon.openChests(arg1, arg2)
             ok, value = App.request("dgChest", "dungeon_open_chest")
         else
             ok, value = App.request("dgChest", "dungeon_open_chest", true)
+        end
+        if not ok and (value == "waiting" or value == "slowing down") then
+            -- 2.34: our own request pause after a timeout, not the game refusing: wait it out, it isn't a failed chest
+            task.wait(3)
+            continue
         end
         if ok and value ~= nil then
             App.log(1, "DUNGEON", "chest: " .. (type(value) == "table" and Utils.json(Utils.plain(value)):sub(1, 300) or tostring(value)))
@@ -38060,6 +38353,7 @@ function Dungeon.openChests(arg1, arg2)
             count3 = 0
         else
             count3 = count3 + 1
+            task.wait(5) -- 2.34: a real failure: give the game a moment before the next try
         end
         task.wait(1)
         if res22 < res2 or res32 < res3 then
@@ -38092,8 +38386,8 @@ function Dungeon.openChests(arg1, arg2)
     Dungeon.note(string.format("opened %d chests and %d rare chests (%s, luck ×%.1f) · gems %+d", count, count2, arg2 and "last room" or (lives <= 1 and "one life left" or "floor 20"), Dungeon.luck(arg1), (tonumber(Core.cur("gems")) or 0) - cur))
     local _, res2, res3 = Dungeon.res(Dungeon.data())
     if (arg2 or cleared >= Dungeon.ROOMS) and res2 + res3 > 0 then
-        Dungeon.note(string.format("%d chests and %d rare chests didn't open: the last room stays open, trying again in 30 min", res2, res3))
-        Modes.rec("dg").restUntil = os.time() + 1800
+        Dungeon.note(string.format("%d chests and %d rare chests didn't open: the last room stays open, trying again in 5 min", res2, res3))
+        Modes.rec("dg").restUntil = os.time() + 300
         return "hold"
     end
     if not arg2 then
@@ -39343,6 +39637,20 @@ function Match.scan()
     Match.front = count
     Match.pressure = math.max(Match.waveMax [wave] or 0, Match.waveMax [wave - 1] or 0)
     Match.depth = Match.coverage(list2, list)
+    -- 2.29: what the flyers really did this match (for Match.airCalm): seconds with flyers alive, how far they got
+    do
+        local now, flying = Utils.now(), false
+        for _, item in ipairs(list) do
+            if item.fly and (item.hp or 0) > 0 then
+                flying = true
+                Match.airFar = math.max(Match.airFar or 0, item.prog or 0)
+            end
+        end
+        if flying and Match.airSeenAt then
+            Match.airTime = (Match.airTime or 0) + math.min(2, math.max(0, now - Match.airSeenAt))
+        end
+        Match.airSeenAt = flying and now or nil
+    end
     local now = Utils.now()
     Match.aliveHist = Match.aliveHist or {
     }
@@ -39413,6 +39721,13 @@ function Match.blockedSpot(position)
     if Match.refused [spotKey] then
         return true
     end
+    -- 2.33: a spot the boss has already walked past (its unit was just sold to move up) stays closed for this boss
+    -- (the boss focus is re-made every step and can blink off, so the ban follows the boss itself: while it is
+    -- still on the field, for at most 2 minutes)
+    local ban = Match.focusBan
+    if ban and ban.spots [spotKey] and ban.m and ban.m.Parent and Utils.now() - ban.at < 120 then
+        return true
+    end
     local mapKey = Match.mapKey()
     local value = Brain.blocked [mapKey]
     if not (value and (tonumber(value [spotKey]) or 0) >= 2) then
@@ -39460,6 +39775,24 @@ function Match.valid(cand, data)
     end
     if Match.blockedSpot(position) then
         return nil
+    end
+    -- 2.34: while a boss we sold units behind is on the field, a fighter goes only where it reaches the road ahead of it
+    -- (a spot behind the boss would be sold again a second later); farms and buffers are not affected
+    local ban = Match.focusBan
+    if ban and ban.ahead and ban.m and ban.m.Parent and Utils.now() - ban.at < 120
+        and not (tonumber(data.farm_amount) or data.is_farm) then
+        local reach = (tonumber(data.range) or 0) * ((Match.info and tonumber(Match.info.rangeScale)) or 1)
+        local flat = Utils.flat(position)
+        local ok = false
+        for _, p in ipairs(ban.ahead) do
+            if (p - flat).Magnitude <= reach then
+                ok = true
+                break
+            end
+        end
+        if not ok then
+            return nil
+        end
     end
     for _, unit in ipairs(Match.mine or {
     }) do
@@ -39637,6 +39970,13 @@ function Match.canAir(unit)
     local value = Match.airCache [unit]
     if not value or value.lvl ~= upgradeValue then
         local value2 = unit:GetAttribute("_on_hill") == true or unit:GetAttribute("_anti_air") == true
+        if not value2 then
+            -- 2.29: the game's own data too (summoners and hill units from level 0, an attack that hits flyers
+            -- from some level): the attributes alone left summoners out, and the air check then saw no air damage.
+            local idObj = unit._stats:FindFirstChild("id")
+            local ok, from = pcall(Units.airFrom, idObj and idObj.Value)
+            value2 = ok and type(from) == "number" and type(upgradeValue) == "number" and upgradeValue >= from
+        end
         value = {
             lvl = upgradeValue,
             v = value2
@@ -39687,6 +40027,20 @@ function Match.cardAir(id)
     end
     local field = Units.field(id, "primary_attack_no_upgrades") or Units.field(id, "primary_attack")
     return field and Core.Attacks [field] and Core.Attacks [field].targets_flying and true or false
+end
+
+-- 2.29: flyers have been alive on the field for 30 s in all and none got past half the road: the forecast that the
+-- team can't kill the flyers coming is not borne out, so it no longer holds back farms (leaks and pressure still count).
+-- The script restarts in every match, so these fields start empty each time.
+Match.AIR_CALM_SEC, Match.AIR_CALM_FAR = 30, 0.5
+function Match.airCalm()
+    if (Match.airTime or 0) < Match.AIR_CALM_SEC then
+        return false
+    end
+    if (Match.airFar or 0) >= Match.AIR_CALM_FAR then
+        return false
+    end
+    return not (Match.depth and Match.depth.airLeak)
 end
 
 function Match.airShare()
@@ -40918,7 +41272,7 @@ function Match.lastLife(value, simResult)
         Dungeon.note("last life kept: back to the lobby before a wave starts. Looks again in an hour")
         App.saveNow()
         task.wait(1)
-        App.request("lobby", "teleport_back_to_lobby")
+        Match.toLobby("dungeon: last life kept")
     end
 end
 Match.STYLE_FAST, Match.STYLE_BALANCED, Match.FAST_ROAD, Match.PLAN_TOTAL = 1.5, 1.1, 0.35, 14
@@ -41969,6 +42323,10 @@ function Match.teamOpeningSpot(unit)
 end
 
 function Match.bestSpot(unit, isFarm, arg3)
+    if Match.endMove and Config.endMove ~= false and not Match.focus then
+        if isFarm or Units.isFarm(unit.id) or Units.allyBuff(unit.id) then return nil, 0 end
+        return Match.endSpot(unit)
+    end
     if Match.focus and not isFarm and not arg3 and not Units.allyBuff(unit.id) then
         local focusSpot, focusSpot2 = Match.focusSpot(unit)
         if focusSpot then
@@ -42792,6 +43150,9 @@ function Match.measure()
         if wave > 0 then
             calRun.alive [tostring(wave)] = Match.hpAliveRaw or 0
         end
+        if wave == Match.total then
+            calRun.moveFinalSeen = calRun.lastW == Match.total - 1
+        end
         calRun.lastW, calRun.lastWT = wave, now
     end
     local waveTime = workspace:FindFirstChild("_wave_time")
@@ -42839,6 +43200,12 @@ function Match.measure()
             if wave > 0 then
                 calRun.spawn [tostring(wave)] = (calRun.spawn [tostring(wave)] or 0) + 1
                 calRun.spawnLast [tostring(wave)] = now - (calRun.lastWT or now)
+                calRun.moveLastNew = now
+                calRun.moveSpawn = calRun.moveSpawn or {}
+                local ids = calRun.moveSpawn[tostring(wave)] or {}
+                calRun.moveSpawn[tostring(wave)] = ids
+                local id = stats.id.Value
+                ids[id] = (ids[id] or 0) + 1
             end
         elseif not value.done and now - value.t >= 15 then
             value.done = true
@@ -43976,6 +44343,7 @@ function Match.idleBuy(options, money)
 end
 
 function Match.econ()
+    if Match.endMovePending() then return end
     if Match.noBuy then
         return App.status("Economy", "keeping the last life: back to the lobby")
     end
@@ -44451,7 +44819,7 @@ function Match.econ()
         future = futureYen,
         wantLeft = wantLeft,
         coming = Match.coming,
-        airShare = Match.comingAir and Match.airShare() or nil,
+        airShare = Match.comingAir and not Match.airCalm() and Match.airShare() or nil,
         waveSec = Match.info and Match.info.waveSec,
         eff = eff,
         teamDps = (Match.teamDps or 0) * eff,
@@ -44533,6 +44901,13 @@ function Match.econ()
             if support then Match.namekTest.supportChoices += 1 end
             Match.namekTest.lastChoice = string.format("%s (%.0f vs %.0f gain / ¥1k)", choice.what, choice.gain / math.max(1, choice.cost) * 1000, rival)
         end
+    end
+    -- 2.33: the match may have ended while an earlier request waited for its answer
+    local overOk, over = pcall(function()
+        return workspace._DATA.GameFinished.Value
+    end)
+    if Match.finished or (overOk and over) then
+        return
     end
     if choice.place then
         Match.place(choice.e, why)
@@ -45479,9 +45854,19 @@ function Match.GameAuto.learnHook()
     end
     Match.GameAuto.hookRetry = Utils.now() + 30
     local wrapped = 0
+    -- 2.34: the game's module outlives this copy of the script (App.restart keeps the same client). Keep the game's
+    -- own functions on the module and always wrap those: wrapping an older copy's wrapper chained every restarted copy
+    -- in memory and made every server call pass through all of them.
+    local origs = rawget(Core.EP, "__aaOrig")
+    if type(origs) ~= "table" then
+        origs = {
+        }
+        pcall(rawset, Core.EP, "__aaOrig", origs)
+    end
     for key, fn in pairs(Core.EP) do
         if type(fn) == "function" and tostring(key):lower():find("server", 1, true) then
-            local original = fn
+            local original = origs [key] or fn
+            origs [key] = original
             local ok = pcall(function()
                 Core.EP [key] = function(...)
                     if (Match.GameAuto.sending or 0) == 0 and App.alive then
@@ -47881,6 +48266,360 @@ function Match.refund()
     end)
 end
 
+-- ===== End-of-match move decisions (2.29c) =====
+-- Plain records only. Confirmation state is returned, never changed in place.
+function Match.endSpawnReady(ctx)
+    -- 2.29d: no exact roster (procedural waves): the final wave's boss is out and nothing new came for a while
+    if not ctx.expected and ctx.bossSeen and not ctx.unknown and not ctx.infinite and ctx.total and ctx.wave
+        and ctx.wave >= ctx.total and ctx.observedFinal and ctx.lastNew and ctx.now
+        and ctx.now - ctx.lastNew >= math.max(8, (ctx.quiet or 5) * 1.5) then
+        return true
+    end
+    if ctx.infinite or not ctx.total or ctx.total <= 0 or not ctx.wave or ctx.wave < ctx.total
+        or not ctx.observedFinal or ctx.unknown or not ctx.expected or not ctx.observed
+        or not ctx.lastNew or not ctx.now or ctx.now - ctx.lastNew < (ctx.quiet or 5) then
+        return false
+    end
+    local n = 0
+    for id, amount in pairs(ctx.expected) do
+        if amount <= 0 or ctx.observed[id] ~= amount then return false end
+        n = n + amount
+    end
+    for id, amount in pairs(ctx.observed) do
+        if ctx.expected[id] ~= amount then return false end
+    end
+    return n > 0
+end
+
+function Match.strandedUnits(units, enemies, ctx)
+    local ready, seen = {}, {}
+    if ctx.enabled == false or ctx.infinite or not ctx.total or ctx.total <= 0
+        or not ctx.wave or ctx.wave < ctx.total or ctx.spawnDone ~= true or not ctx.now then
+        return ready, seen
+    end
+    local live = {}
+    for _, enemy in ipairs(enemies) do
+        if (enemy.hp or 0) > 0 then
+            if type(enemy.prog) ~= "number" or enemy.prog ~= enemy.prog or enemy.prog < 0 or enemy.prog > 1 then
+                return ready, seen
+            end
+            table.insert(live, enemy)
+        end
+    end
+    if #live == 0 then return ready, seen end
+    for _, unit in ipairs(units) do
+        if unit.key ~= nil and unit.zones and not (unit.farm or unit.buffer or unit.bless
+            or unit.unsellable or unit.summoner or unit.moved or unit.dependent) then
+            local stranded = true
+            for _, enemy in ipairs(live) do
+                if not enemy.fly or unit.air == true then
+                    local last = unit.zones[enemy.lane or "_"]
+                    if last and last >= enemy.prog - (ctx.margin or 0.015) then
+                        stranded = false
+                        break
+                    end
+                end
+            end
+            if stranded then
+                local first = ctx.seen and ctx.seen[unit.key] or ctx.now
+                seen[unit.key] = first
+                if ctx.now - first >= 2 then table.insert(ready, unit) end
+            end
+        end
+    end
+    table.sort(ready, function(a, b) return (a.spent or 0) < (b.spent or 0) end)
+    return ready, seen
+end
+
+function Match.endAheadScore(samples, enemies, ctx)
+    local tails = {}
+    for _, enemy in ipairs(enemies) do
+        if (enemy.hp or 0) > 0 and (not enemy.fly or ctx.air == true) then
+            if type(enemy.prog) ~= "number" or enemy.prog ~= enemy.prog or enemy.prog < 0 or enemy.prog > 1 then
+                return 0
+            end
+            local lane = enemy.lane or "_"
+            tails[lane] = math.min(tails[lane] or 1, enemy.prog)
+        end
+    end
+    local spans = {}
+    for _, sample in ipairs(samples) do
+        local lane = sample.lane or "_"
+        local tail = tails[lane]
+        local lead = math.max(0.03, (ctx.rates and ctx.rates[lane] or 0) * 3)
+        if sample.covered and tail and sample.prog >= tail + lead then
+            local span = spans[lane] or {lo = sample.prog, hi = sample.prog, n = 0}
+            span.lo, span.hi = math.min(span.lo, sample.prog), math.max(span.hi, sample.prog)
+            span.n = span.n + 1
+            spans[lane] = span
+        end
+    end
+    local score = 0
+    for _, span in pairs(spans) do
+        if span.hi - span.lo >= 0.005 then score = score + span.n end
+    end
+    return score
+end
+
+function Match.endSaleReady(unit, plan, ctx)
+    return plan ~= nil and plan.ahead == true and plan.capacity == true and (plan.cost or 0) > 0
+        and (ctx.cash or 0) + math.floor(math.max(0, unit.spent or 0) * 0.5) >= plan.cost
+        and ctx.now ~= nil and (not ctx.lastSale or ctx.now - ctx.lastSale >= 5)
+end
+-- ===== End-of-match move runtime (2.29c) =====
+-- Count evidence comes from Match.measure, not the simulated/calibrated enemy count.
+-- 2.29d: the boss evidence path, with the same check for enemies that split on death.
+function Match.endBossCtx(ctx)
+    for _, enemy in ipairs(Match.enemies or {}) do
+        local stats = enemy.m and enemy.m:FindFirstChild("_stats")
+        local id = stats and stats:FindFirstChild("id") and stats.id.Value
+        local data = id and Core.Units[id]
+        if not data or data.death_spawn then
+            ctx.unknown = true
+        end
+    end
+    ctx.spawnDone = Match.endSpawnReady(ctx)
+    return ctx
+end
+
+function Match.endMoveContext()
+    local cal, info = Match.calRun, Match.info
+    local ctx = {enabled = Config.endMove ~= false, infinite = Match.infinite,
+        wave = Match.wave(), total = Match.total, now = Utils.now()}
+    if not cal or not info then return ctx end
+    ctx.observedFinal = cal.moveFinalSeen and not Match.joinedMid
+    ctx.observed = cal.moveSpawn and cal.moveSpawn[tostring(ctx.wave)]
+    ctx.lastNew, ctx.quiet = cal.moveLastNew, math.max(5, (tonumber(info.spawnGap) or 1) * 2)
+    if ctx.wave and ctx.total and ctx.wave >= ctx.total then
+        for _, enemy in ipairs(Match.enemies or {}) do
+            if enemy.boss then
+                cal.moveBossSeen = true
+            end
+        end
+    end
+    ctx.bossSeen = cal.moveBossSeen == true
+    -- Procedural waves, extra spawns and calibrated counts are estimates: fail closed.
+    local wave = not info.infinite and info.list and info.list[ctx.wave]
+    if info.fx and info.fx.starfall then return ctx end
+    if not wave or type(wave.wave) ~= "table"
+        or (info.cal and math.abs((tonumber(info.cal.countCal) or 1) - 1) > 0.001) then return Match.endBossCtx(ctx) end
+    ctx.expected = {}
+    for _, row in ipairs(Utils.list(wave.wave)) do
+        local cfg = type(row) == "table" and info.configs and info.configs[row.unit]
+        local id = cfg and cfg.unit_id
+        local data = id and Core.Units[id]
+        local amount = type(row) == "table" and (tonumber(row.amount) or 1)
+        if not data or not amount or amount <= 0 or amount % 1 ~= 0 or data.death_spawn then
+            ctx.unknown = true
+            break
+        end
+        ctx.expected[id] = (ctx.expected[id] or 0) + amount
+    end
+    -- A surviving earlier enemy may also split into fresh targets.
+    for _, enemy in ipairs(Match.enemies or {}) do
+        local stats = enemy.m and enemy.m:FindFirstChild("_stats")
+        local id = stats and stats:FindFirstChild("id") and stats.id.Value
+        local data = id and Core.Units[id]
+        if not data or data.death_spawn then ctx.unknown = true end
+    end
+    ctx.spawnDone = Match.endSpawnReady(ctx)
+    return ctx
+end
+
+function Match.endMoveRecords()
+    local state, records, models = Match.moveState, {}, {}
+    for _, model in ipairs(Match.mine or {}) do
+        local stats = model._stats
+        local id = stats.id.Value
+        local data = Core.Units[id]
+        if data and stats:FindFirstChild("range") then
+            local key = state.keys[model]
+            if not key then
+                state.serial = state.serial + 1
+                key, state.keys[model] = state.serial, state.serial
+            end
+            local flat = Utils.flat(model:GetPivot().Position)
+            -- Include a sample spacing of slack, plus the progress margin in the pure rule.
+            local radius = stats.range.Value * (Units.SUMMONER[id] and Units.SUMMONER[id].reach or 1) + 2
+            local zones = {}
+            for _, sample in ipairs(Match.samples or {}) do
+                if ((sample.flat or Utils.flat(sample.pos)) - flat).Magnitude <= radius then
+                    local lane = sample.lane or "_"
+                    zones[lane] = math.max(zones[lane] or 0, sample.prog)
+                end
+            end
+            local uuid = stats:FindFirstChild("uuid") and stats.uuid.Value
+            local record = {key = key, id = id, uuid = uuid, zones = zones,
+                spent = stats:FindFirstChild("total_spent") and tonumber(stats.total_spent.Value) or 0,
+                air = Match.canAir(model), farm = Units.isFarm(id), buffer = Units.allyBuff(id) ~= nil and Units.allyBuff(id) ~= false,
+                bless = Units.BLESS.by[id] ~= nil, unsellable = data.unsellable,
+                summoner = Units.SUMMONER[id] ~= nil,
+                dependent = (Units.FUSION.attacks[id] ~= nil) or id == Units.FUSION.hero
+                    or (stats:FindFirstChild("parent_unit") and stats.parent_unit.Value ~= nil),
+                moved = state.moved[model] or state.protected[id]
+                    or (Match.focusMoved and (Match.focusMoved[model] or Match.focusMoved[id]))}
+            table.insert(records, record)
+            models[key] = model
+        end
+    end
+    return records, models
+end
+
+function Match.endPointScore(member, position)
+    local range = Units.range(member.u, 0) * ((Match.info and Match.info.rangeScale) or 1)
+        * (Units.SUMMONER[member.id] and Units.SUMMONER[member.id].reach or 1)
+    local from = Units.airFrom(member.id)
+    local ctx = {air = Match.cardAir(member.id) or (from ~= nil and from <= 0), rates = {}}
+    for _, enemy in ipairs(Match.enemies or {}) do
+        if (enemy.hp or 0) > 0 then
+            local track = Match.track and Match.track[enemy.m]
+            local rate = math.max(0.01, ((Match.info and Match.info.walk) or 0.01) * (track and track.sp or 1)
+                * ((Match.info and Match.info.speedScale) or 1))
+            if track and Utils.now() - track.t >= 1 then
+                rate = math.max(rate, (enemy.prog - track.p) / (Utils.now() - track.t))
+            end
+            local lane = enemy.lane or "_"
+            ctx.rates[lane] = math.max(ctx.rates[lane] or 0, rate)
+        end
+    end
+    local samples, flat = {}, Utils.flat(position)
+    for _, sample in ipairs(Match.samples or {}) do
+        table.insert(samples, {prog = sample.prog, lane = sample.lane,
+            covered = ((sample.flat or Utils.flat(sample.pos)) - flat).Magnitude <= range})
+    end
+    return Match.endAheadScore(samples, Match.enemies or {}, ctx)
+end
+
+function Match.endSpot(member)
+    local pending = Match.moveState and Match.moveState.pending
+    if pending and pending.member.uuid == member.uuid then
+        local valid = Match.valid(pending.spot, member.data)
+        local score = valid and Match.endPointScore(member, valid) or 0
+        if score > 0 then return valid, score end
+    end
+    local best, score = nil, 0
+    for i, cand in ipairs(Match.cands or {}) do
+        local valid = Match.valid(cand, member.data)
+        local count = valid and Match.endPointScore(member, valid) or 0
+        if count > score then best, score = valid, count end
+        if i % 40 == 0 then task.wait() end
+    end
+    return best, score
+end
+
+function Match.endMovePlan(record)
+    for _, member in ipairs(Match.team or {}) do
+        local data = member.data
+        local capacity = Match.count(member.uuid) - (member.uuid == record.uuid and 1 or 0) < Units.cap(member.u)
+            and Match.fieldCount() - 1 < (Match.effectiveFieldMax or Match.FIELD_MAX)
+        if data and member.u and not Units.isFarm(member.id) and not Units.allyBuff(member.id)
+            and not Units.BLESS.by[member.id] and capacity then
+            local cost = Match.spawnCost(member)
+            if cost > 0 and Match.money() + math.max(0, record.spent) * 0.5 >= cost then
+                local spot = Match.endSpot(member)
+                if spot then return {member = member, spot = spot, cost = cost, capacity = true, ahead = true} end
+            end
+        end
+    end
+    return nil
+end
+
+-- Reserves the sale proceeds until the actual cash and freed slot replicate.
+function Match.endMovePending()
+    local state = Match.moveState
+    local pending = state and state.pending
+    if not pending then return false end
+    if Config.endMove == false or not Config.place or Match.focus or Match.noBuy or Match.stopping then
+        state.protected[pending.member.id], state.pending = true, nil
+        return false
+    end
+    if pending.placed then
+        for _, model in ipairs(Match.mine or {}) do
+            local stats = model._stats
+            if not pending.before[model] and stats:FindFirstChild("uuid") and stats.uuid.Value == pending.member.uuid then
+                state.moved[model] = true
+                Match.focusMoved = Match.focusMoved or {}
+                Match.focusMoved[model] = true
+                state.pending = nil
+                return true
+            end
+        end
+    elseif Match.endMove and (not pending.old.Parent or pending.old.Parent ~= workspace._UNITS)
+        and Match.money() >= Match.spawnCost(pending.member)
+        and Match.count(pending.member.uuid) < Units.cap(pending.member.u)
+        and Match.fieldCount() < (Match.effectiveFieldMax or Match.FIELD_MAX) then
+        pending.placed = Match.place(pending.member, "moving ahead of the last enemies")
+    end
+    if Utils.now() - pending.t >= 15 then
+        state.protected[pending.member.id], state.pending = true, nil
+        App.log(1, "PLACE", "move paused: replacement was not confirmed")
+    end
+    return true
+end
+
+function Match.endMoveStep()
+    local state = Match.moveState
+    Match.endMove = false
+    if not state or Config.endMove == false or not Config.place or not Config.battle or Match.focus
+        or Match.random or Match.noBuy or Match.stopping or Match.spellBusy or Match.planning
+        or Match.trialId or Match.trainee then
+        if state then state.seen = {} end
+        return
+    end
+    local ctx = Match.endMoveContext()
+    if not ctx.spawnDone then state.seen = {}; return end
+    local live = false
+    for _, enemy in ipairs(Match.enemies or {}) do
+        if (enemy.hp or 0) > 0 then live = true; break end
+    end
+    if not live then state.seen = {}; return end
+    ctx.seen = state.seen
+    local records, models = Match.endMoveRecords()
+    local ready, seen = Match.strandedUnits(records, Match.enemies or {}, ctx)
+    state.seen = seen
+    Match.endMove = true
+    if not Match.endMove or state.pending or #ready == 0
+        or (state.lastSale and ctx.now - state.lastSale < 5) then return end
+    for _, record in ipairs(ready) do
+        local plan = Match.endMovePlan(record)
+        if plan then
+            -- Searching can yield. Re-scan and re-check all evidence before spending the unit.
+            Match.scan()
+            Match.measure()
+            local fresh = Match.endMoveContext()
+            fresh.seen, fresh.cash, fresh.lastSale = state.seen, Match.money(), state.lastSale
+            local current, currentModels = Match.endMoveRecords()
+            local confirmed, nextSeen = Match.strandedUnits(current, Match.enemies or {}, fresh)
+            state.seen = nextSeen
+            local found
+            for _, candidate in ipairs(confirmed) do
+                if candidate.key == record.key then found = candidate; break end
+            end
+            local model = currentModels[record.key] or models[record.key]
+            plan.cost = Match.spawnCost(plan.member)
+            plan.capacity = Match.count(plan.member.uuid) - (plan.member.uuid == record.uuid and 1 or 0) < Units.cap(plan.member.u)
+                and Match.fieldCount() - 1 < (Match.effectiveFieldMax or Match.FIELD_MAX)
+            plan.ahead = Match.valid(plan.spot, plan.member.data) ~= nil and Match.endPointScore(plan.member, plan.spot) > 0
+            if not fresh.spawnDone then Match.endMove = false end
+            if not fresh.spawnDone or Match.focus then return end
+            if not found or not model or not model.Parent or not Match.endSaleReady(found, plan, fresh) then continue end
+            state.lastSale = Utils.now()
+            local _, res = App.request("sell", "sell_unit_ingame", model)
+            if res == true then
+                state.moved[model] = true
+                Match.focusMoved = Match.focusMoved or {}
+                Match.focusMoved[model] = true
+                local before = {}
+                for _, tower in ipairs(Match.mine or {}) do before[tower] = true end
+                state.pending = {member = plan.member, spot = plan.spot, old = model, t = Utils.now(), before = before}
+                Match.noSpot = {}
+                App.log(1, "PLACE", string.format("moved: sold %s (¥%s): every enemy left is past it", Units.name(record.id), Utils.fmt(record.spent)))
+            end
+            return
+        end
+    end
+end
+
 function Match.bossStep()
     Match.focus = nil
     if Match.random then
@@ -47941,6 +48680,19 @@ function Match.bossStep()
         fly = value.fly,
         m = value.m
     }
+    -- 2.34: road still ahead of this boss (for the placement rule in Match.valid)
+    local ban = Match.focusBan
+    if ban and ban.m == value.m then
+        ban.prog = value.prog
+        ban.ahead = {
+        }
+        for _, sample in ipairs(Match.samples or {
+        }) do
+            if sample.prog >= value.prog then
+                table.insert(ban.ahead, sample.flat or Utils.flat(sample.pos))
+            end
+        end
+    end
     local now = Utils.now()
     local focusTrack = Match.focusTrack
     if not focusTrack or focusTrack.m ~= value.m then
@@ -48037,7 +48789,7 @@ function Match.bossStep()
             pcall(Match.styleRecord, false)
             App.log(1, "MATCH", string.format("bailing out: the boss would reach the base with %s HP, your units deal %s a second to it and the base would last %ds against it: back to the lobby to keep the life", Utils.fmt(hp), Utils.fmt(focusTrack.net), math.floor(ratio)))
             App.flush()
-            App.request("lobby", "teleport_back_to_lobby")
+            Match.toLobby("bailing out before the boss")
             return
         end
     end
@@ -48045,7 +48797,12 @@ function Match.bossStep()
     if count == 0 and ratio < 30 then
         return
     end
-    if list [1] and FarmHub.every("bossSell", 2) then
+    -- 2.32: units the boss has walked past are sold only when the boss would really reach the base (value2).
+    -- If it dies on the way anyway, they stay: the ordinary enemies after the boss still need them.
+    if list [1] and not value2 and FarmHub.every("bossKeep", 30) then
+        App.log(1, "MATCH", string.format("boss: %d unit(s) it walked past are kept — it dies before the base at this damage", # list))
+    end
+    if list [1] and value2 and FarmHub.every("bossSell", 2) then
         table.sort(list, function(arg1, arg2)
             return arg1.spent < arg2.spent
         end)
@@ -48059,8 +48816,23 @@ function Match.bossStep()
         end
     end
     if item then
+        local soldAt = nil
+        pcall(function()
+            soldAt = Match.spotKey(item.m:GetPivot().Position)
+        end)
         local _, res = App.request("sell", "sell_unit_ingame", item.m)
         if res == true then
+            if soldAt and Match.focus then
+                if not (Match.focusBan and Match.focusBan.m == Match.focus.m) then
+                    Match.focusBan = {
+                        m = Match.focus.m,
+                        at = Utils.now(),
+                        spots = {
+                        }
+                    }
+                end
+                Match.focusBan.spots [soldAt] = true
+            end
             Match.focusMoved = Match.focusMoved or {
             }
             Match.focusMoved [item.m] = true
@@ -48813,7 +49585,7 @@ function Match.finish()
         Brain.pending, Brain.startTeam = nil, nil
         App.saveNow()
         if App.alive and Config.master and Config.play then
-            App.request("lobby", "teleport_back_to_lobby")
+            Match.toLobby("no confirmed result")
         end
         return
     end
@@ -49354,8 +50126,78 @@ function Match.finish()
         end
     end
     if App.alive then
-        App.request("lobby", "teleport_back_to_lobby")
+        Match.toLobby("after the match")
     end
+end
+
+-- ===== Back to the lobby that survives a failed teleport (2.30) =====
+-- The game sometimes fails a teleport. Asking once left the farm sitting in a finished match for good:
+-- the match loop had already ended and nothing asked again. Now the request is watched: while this copy is
+-- still alive (a real teleport stops it), it asks again, sooner if the game reports TeleportInitFailed,
+-- and in the end teleports straight to the lobby the way Rejoin does.
+Match.LOBBY_RETRY, Match.LOBBY_TRIES = 20, 6
+
+function Match.toLobby(why)
+    local ok, res = App.request("lobby", "teleport_back_to_lobby")
+    if Match._lobbyGuard then
+        return ok, res
+    end
+    Match._lobbyGuard = true
+    local app = App
+    local failed = nil
+    pcall(function()
+        local conn = game:GetService("TeleportService").TeleportInitFailed:Connect(function(player, result, message)
+            if player == nil or player == LocalPlayer then
+                failed = tostring(message or result or "teleport failed")
+            end
+        end)
+        table.insert(App.conns, conn)
+    end)
+    local function gone()
+        return not app.alive or _G.AA_SF ~= app
+    end
+    task.spawn(function()
+        local asked = Utils.now()
+        for attempt = 2, Match.LOBBY_TRIES + 1 do
+            local untilT = Utils.now() + Match.LOBBY_RETRY
+            while not gone() and Utils.now() < untilT and not failed do
+                task.wait(0.5)
+            end
+            if gone() then
+                return
+            end
+            local reason = failed and ("the game said: " .. failed) or "no teleport yet"
+            failed = nil
+            if attempt <= Match.LOBBY_TRIES then
+                App.log(1, "MODE", string.format("still here %d s after asking for the lobby (%s, %s) — asking again (%d/%d)",
+                    math.floor(Utils.now() - asked), tostring(why), reason, attempt, Match.LOBBY_TRIES))
+                App.request("lobby", "teleport_back_to_lobby")
+            else
+                local place = tonumber(Brain.lobbyPlace)
+                App.log(1, "MODE", string.format("the game didn't take us to the lobby in %d s (%s) — teleporting there directly",
+                    math.floor(Utils.now() - asked), reason))
+                pcall(Discord.alert, "Stuck after the match", string.format("%s: no teleport to the lobby for %d s — teleporting directly",
+                    tostring(why), math.floor(Utils.now() - asked)))
+                pcall(App.flush)
+                if place then
+                    local tok, terr = pcall(function()
+                        game:GetService("TeleportService"):Teleport(place, LocalPlayer)
+                    end)
+                    if not tok then
+                        App.log(1, "MODE", "direct teleport failed: " .. tostring(terr))
+                    end
+                else
+                    App.log(1, "MODE", "the lobby's place is not known yet: asking the game once more")
+                    App.request("lobby", "teleport_back_to_lobby")
+                end
+            end
+        end
+        -- still here after everything: let the next request start a fresh watch
+        if not gone() then
+            Match._lobbyGuard = nil
+        end
+    end)
+    return ok, res
 end
 
 function Match.watchMods()
@@ -49518,12 +50360,10 @@ function Match.startTeam()
         Brain.pending = nil
         App.log(1, "TEAM", string.format("%s: no wave started, back to the lobby (%s)", tostring(arg1), tostring(startTeam.why)))
         App.saveNow()
-        for i = 1, 3 do
-            App.request("lobby", "teleport_back_to_lobby")
-            local now = Utils.now()
-            while App.alive and Utils.now() - now < 5 do
-                task.wait(0.5)
-            end
+        Match.toLobby("no wave started")
+        local now = Utils.now()
+        while App.alive and Utils.now() - now < 15 do
+            task.wait(0.5)
         end
     end
     if Modes.hasOwnTeam(startTeam.train) then
@@ -49627,7 +50467,7 @@ function Match.run()
     if Brain.holdLobby and os.time() - (tonumber(Brain.holdLobby.at) or 0) < 90 then
         App.log(1, "MODE", "this match started just after you pressed Go To Lobby: going back")
         pcall(App.flush)
-        App.request("lobby", "teleport_back_to_lobby")
+        Match.toLobby("Go To Lobby was pressed")
     end
     if Brain.watch and Brain.watch.key == Match.key and os.time() - (tonumber(Brain.watch.at) or 0) > 120 then
         pcall(FarmHub.watchDone)
@@ -49661,6 +50501,9 @@ function Match.run()
     }
     Match.style, Match.styleSig = nil, nil
     Match.refusals = 0
+    Match.endMove = false
+    Match.moveState = {seen = {}, moved = {}, protected = {}, serial = 0,
+        keys = setmetatable({}, {__mode = "k"})}
     Match.startClock = os.clock()
     Match.startT = Utils.now()
     Match.placeLog, Match.styleWhy = {
@@ -50011,6 +50854,12 @@ function Match.run()
                         App.log(1, "ERROR", "boss step: " .. tostring(res))
                     end
                 end
+                if FarmHub.every("endMoveStep", 1) then
+                    local ok, res = pcall(Match.endMoveStep)
+                    if not ok and FarmHub.every("endMoveErr", 30) then
+                        App.log(1, "ERROR", "end move: " .. tostring(res))
+                    end
+                end
                 if not Match.stopping then
                     Match.econ()
                 end
@@ -50085,7 +50934,7 @@ function Match.run()
                     pcall(Discord.alert, "No progress", string.format("%s: no progress for %d min — back to the lobby", Match.label(), value and 30 or 6))
                     App.flush()
                     now2 = Utils.now()
-                    App.request("lobby", "teleport_back_to_lobby")
+                    Match.toLobby("no progress")
                 end
             end)
             if not ok2 then
@@ -55264,6 +56113,7 @@ function GUI.build()
     helper2(tab, "Battle AI", "Runs placement and upgrades", "battle")
     helper2(tab, "Auto Place", "Where enemies spend the most time in range", "place")
     helper2(tab, "Auto Upgrade", "The most damage per yen", "upgrade")
+    helper2(tab, "Move Units At The End", "Moves idle attackers ahead after the final spawn", "endMove")
     helper2(tab, "Auto Abilities", "Buffs while the team fights, damage abilities for a boss or a crowd", "actives")
     helper3(tab, "Ability Hold", "How long a damage ability waits for a boss or a crowd", "abilityHold", {
         min = 0,
@@ -55555,7 +56405,7 @@ function GUI.build()
         App.log(1, "MODE", "back to the lobby (you pressed Go To Lobby): the farm waits there until you press Start Farming Again")
         pcall(App.flush)
         task.spawn(function()
-            local ok, res = App.request("lobby", "teleport_back_to_lobby")
+            local ok, res = Match.toLobby("Go To Lobby")
             helper6("Lobby", ok and "on the way to the lobby" or ("the game said no: " .. tostring(res)), ok and "success" or "warning")
         end)
     end)
